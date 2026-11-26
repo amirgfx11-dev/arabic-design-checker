@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="card" style="max-width:420px;margin:40px auto">
+<h2>كود الدخول</h2>
+<form method="post"><label>الكود</label><input type="text" name="code" autofocus>
+{% if err %}<div class="err">الكود غلط.</div>{% endif %}
+<p><button class="btn">دخول</button></p></form></div>
+{% endblock %}
