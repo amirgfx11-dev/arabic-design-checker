@@ -8,10 +8,17 @@
 <p class="lead" dir="auto">{{ r.meta.filename }} · {{ r.meta.pages }} صفحة · تم الفحص في {{ r.meta.seconds }} ثانية · {{ r.meta.when }}</p>
 </section>
 {% set sc = r.meta.get('score') %}
-{% if sc %}<div class="score" style="--p:{{ sc.value }};--c:{{ sc.color }}">
+{% if sc and sc.state == 'no_arabic' %}<div class="score na" style="--c:#8a8a8a">
+<div class="ring"><b>—</b><span>بلا درجة</span></div>
+<div class="sb"><div class="band" style="color:#ddd">لا يوجد محتوى عربي في هذا الملف</div>
+<p class="note" style="margin:4px 0 0">الفحوص العربية غير منطبقة، لذلك لا نعرض درجة ولا تقييمًا. الدرجة من 100 تُعرض فقط للملفات التي فيها نص عربي يمكن فحصه.{% if sc.reason == 'image' %} والصور المسطحة لا نقرأ نصها دون مفتاح واجهة رؤية، ويمكنك لصق النص في صفحة الرفع ليُفحص.{% endif %}</p>
+<details class="how" open><summary>الفحوصات التقنية التي اشتغلت فعلًا{% if sc.applied is not none %} ({{ sc.applied }} من {{ sc.total }}){% endif %}</summary>
+<table>{% for row in r.rows if row.status != 'not_run' %}<tr><td>{{ row.name_ar }}</td><td><span class="badge b-{{ row.status }}">{% if row.status=='clean' %}سليم{% else %}{{ row.flagged }} ملاحظة{% endif %}</span></td></tr>{% endfor %}</table>
+<p class="note">باقي الفحوص ({{ (sc.total - sc.applied) if sc.total is not none and sc.applied is not none else '' }}) لم تنطبق على هذا الملف. التفاصيل في قسم «الفحوصات» أدناه.</p></details></div></div>
+{% elif sc %}<div class="score" style="--p:{{ sc.value }};--c:{{ sc.color }}">
 <div class="ring"><b>{{ sc.value }}</b><span>من 100</span></div>
 <div class="sb"><div class="band" style="color:{{ sc.color }}">{{ sc.band_ar }}</div>
-<p class="note" style="margin:4px 0 0">درجة تلخّص نتائج فحوصات الأداة على هذا الملف. بالكود وحده، بلا نموذج لغوي.</p>
+<p class="note" style="margin:4px 0 0">درجة تلخّص نتائج فحوصات الأداة على هذا الملف. بالكود وحده، بلا نموذج لغوي.{% if sc.applied is not none %} <b style="color:#ddd">انطبق {{ sc.applied }} من {{ sc.total }} فحص على هذا الملف</b>{% if sc.applied < sc.total * 0.6 %}، فالدرجة مبنية على تغطية محدودة{% endif %}.{% endif %}</p>
 <details class="how"><summary>كيف حُسبت الدرجة؟</summary>
 <p class="note">نبدأ من 100. كل خطأ يخصم {{ sc.w_err|int }} نقاط وكل تنبيه {{ sc.w_warn }}، والملاحظة منخفضة الثقة تُحتسب بنصف وزنها. لا يخصم فحص واحد أكثر من {{ sc.cap|int }} نقطة قبل التقسيم، ويُقسم الخصم الكلي على الجذر التربيعي لعدد الصفحات ({{ sc.pages }}) كي لا يُظلم الملف الطويل. 90 فأكثر ممتاز، 75 إلى 89 جيد، 50 إلى 74 يحتاج مراجعة، وأقل من 50 يحتاج عملًا.</p>
 {% if sc.parts %}<table>{% for p in sc.parts %}<tr><td>{{ p.name }}</td><td>{{ p.errors }} خطأ · {{ p.warns }} تنبيه</td><td>−{{ p.penalty }}{% if p.capped %} (بلغ الحد){% endif %}</td></tr>{% endfor %}</table>{% else %}<p class="note">لا خصم: لم تُرصد أخطاء ولا تنبيهات.</p>{% endif %}
