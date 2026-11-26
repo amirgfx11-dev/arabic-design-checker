@@ -19,16 +19,44 @@
 <a class="btn ghost" href="/">فحص ملف آخر</a>
 </div>
 
+{% if r['items'] %}
+<nav class="nav" aria-label="تنقل">
+{% for g in groups %}<a href="#g-{{ g.key }}">{{ g.name }}<b>{{ g.its|length }}</b></a>{% endfor %}
+<a href="#checks">الفحوصات</a>{% if tn %}<a href="#tone">النبرة</a>{% endif %}
+</nav>
+{% endif %}
+
+{% if not r['items'] %}<div class="card"><p><span class="badge b-clean">سليم</span> لا توجد ملاحظات في الفحوصات التي أُجريت. هذا يعني أن التصميم سليم وفق هذه القواعد فقط، ولا يعني خلوه من أي خطأ (راجع الفحوصات التي «لم تُختبر» أدناه).</p></div>{% endif %}
+
+{% for g in groups %}
+<details class="grp" id="g-{{ g.key }}" {% if loop.index <= 2 or groups|length <= 3 %}open{% endif %}>
+<summary><span>{{ g.name }}</span><span class="cnt {{ 'e' if g.errors else '' }}">{{ g.its|length }}</span>{% if g.errors %}<span class="meta">{{ g.errors }} خطأ</span>{% endif %}</summary>
+{% for it in g['its'] %}
+<div class="fnd {{ '' if it.crop else 'nocrop' }}" id="f{{ it.n }}">
+<div>
+<h4><span class="num n-{{ it.severity }}">{{ it.n }}</span><span class="badge b-{{ it.severity }}">{{ 'خطأ' if it.severity=='error' else 'تنبيه' }}</span>
+{% if it.page %}<span class="meta">صفحة {{ it.page }}</span>{% endif %}{% if it.loc %}<span class="meta">{{ it.loc }}</span>{% endif %}</h4>
+<div class="why">{{ it.message_ar }}</div>
+{% if it.fix_ar %}<div class="fix"><b>التصحيح المقترح</b>{{ it.fix_ar }}</div>{% endif %}
+<div class="tags"><span class="tag2 {{ 'code' if it.method.startswith('code') else '' }}">{{ it.method|method_ar }}</span><span class="tag2">الثقة: {{ {'high':'عالية','medium':'متوسطة','low':'منخفضة، راجعها بعينك'}.get(it.confidence, it.confidence) }}</span></div>
+<details class="more"><summary>التفاصيل بالإنجليزية</summary><div class="en">{{ it.message_en }}{% if it.fix_en %}<br>Fix: {{ it.fix_en }}{% endif %}<br>{{ it.method }}</div></details>
+{% if r.meta.kind == "pptx" and it.crop and not r.meta.pptx_real %}<div class="note">مخطط تقريبي للشريحة، وليس صورة حقيقية.</div>{% endif %}
+</div>
+{% if it.crop %}<div><img class="crop" loading="lazy" onclick="this.classList.toggle('big')" src="{{ url_for('img', jid=r.meta.id, name=it.crop) }}" alt="مكان الملاحظة"><div class="meta" style="margin-top:4px">اضغط على الصورة لتكبيرها</div></div>{% endif %}
+</div>
+{% endfor %}
+</details>
+{% endfor %}
+
 {% if tn and tn.dominant != 'unclear' %}
-<div class="card sec"><h2><span class="num2">09</span>نبرة الكتابة</h2>
-<div class="tone"><div><big>{{ {'formal':'رسمية','friendly':'ودّية','mixed':'غير موحدة'}[tn.dominant] }}</big><span class="meta">النبرة السائدة في النص</span></div>
-<div>{% set tot = tn.formal + tn.friendly %}
+<details class="fold" id="tone"><summary>نبرة الكتابة: {{ {'formal':'رسمية','friendly':'ودّية','mixed':'غير موحدة'}[tn.dominant] }}</summary><div>
+{% set tot = tn.formal + tn.friendly %}
 <div class="bar"><i class="f" style="width:{{ (100*tn.formal/tot)|round }}%"></i><i class="c" style="width:{{ 100-(100*tn.formal/tot)|round }}%"></i></div>
 <div class="legend"><span><s style="background:var(--grey)"></s>عبارات رسمية: {{ tn.formal }}</span><span><s style="background:var(--green)"></s>عبارات ودّية: {{ tn.friendly }}</span></div>
-<p class="note" style="margin:10px 0 0">يعتمد التحديد على قوائم كلمات (كود ثابت وليس نموذجًا لغويًا)، وهو يرصد الكلمات المدرجة فقط.</p></div></div></div>
-{% elif tn %}<p class="note" style="margin-top:20px">نبرة الكتابة: لم تُرصد في النص عبارات كافية لتحديد نبرة سائدة.</p>{% endif %}
+<p class="note" style="margin:10px 0 0">التحديد بقوائم كلمات (كود ثابت وليس نموذجًا لغويًا)، ويرصد الكلمات المدرجة فقط.</p></div></details>
+{% elif tn %}<details class="fold" id="tone"><summary>نبرة الكتابة</summary><div><p class="note">لم تُرصد عبارات كافية لتحديد نبرة سائدة.</p></div></details>{% endif %}
 
-<div class="card sec"><h2>الفحوصات: ما الذي فُحص وما الذي سلم</h2>
+<details class="fold" id="checks" {% if not r['items'] %}open{% endif %}><summary>الفحوصات: ما الذي فُحص وما الذي سلم</summary><div>
 <table>
 {% for row in r.rows %}
 <tr><td style="width:34%"><b>{{ row.name_ar }}</b><div class="en">{{ row.key }} · {{ row.name_en }}</div></td>
@@ -36,46 +64,23 @@
 {% if row.checked %}<div class="meta">فُحص {{ row.checked }} عنصرًا</div>{% endif %}</td>
 <td class="meta">{{ row.note_ar or row.note }}</td></tr>
 {% endfor %}
-</table>
-</div>
+</table></div></details>
 
 {% if r.meta.brand %}
-<div class="card"><h2>قواعد الهوية المطبّقة</h2>
+<details class="fold"><summary>قواعد الهوية المطبّقة</summary><div>
 <p>الخطوط: <b>{{ r.meta.brand.fonts|join('، ') or '—' }}</b> · الألوان: <b class="en" style="display:inline;color:var(--grey)">{{ r.meta.brand.colors|join(' ') or '—' }}</b> · الأرقام: <b>{{ {'indic':'هندية','west':'غربية','any':'أي نظام'}[r.meta.brand.numerals] }}</b>{% if r.meta.brand.min_size %} · أصغر حجم خط: <b>{{ r.meta.brand.min_size }}pt</b>{% endif %}</p>
-{% if r.meta.brand.source_note %}<p class="note">{{ r.meta.brand.source_note }}</p>{% endif %}</div>
+{% if r.meta.brand.source_note %}<p class="note">{{ r.meta.brand.source_note }}</p>{% endif %}</div></details>
 {% endif %}
-
-<div class="card sec"><h2>الملاحظات ({{ r['items']|length }})</h2>
-{% if r['items'] %}<div class="filters" id="flt"><button class="on" data-f="all">الكل</button><button data-f="error">أخطاء</button><button data-f="warn">تنبيهات</button></div>{% endif %}
-{% if not r['items'] %}<p><span class="badge b-clean">سليم</span> لا توجد ملاحظات في الفحوصات التي أُجريت. هذا يعني أن التصميم سليم وفق هذه القواعد فقط، ولا يعني خلوه من أي خطأ (راجع الفحوصات التي «لم تُختبر» أعلاه).</p>{% endif %}
-{% for it in r['items'] %}
-<div class="finding" id="f{{ it.n }}" data-sev="{{ it.severity }}">
-<div><div class="num n-{{ it.severity }}">{{ it.n }}</div></div>
-<div>
-<h3>{{ rules[it.check][1] }} <span class="badge b-{{ it.severity }}">{{ 'خطأ' if it.severity=='error' else 'تنبيه' }}</span>
-{% if it.page %}<span class="meta"> · صفحة {{ it.page }}</span>{% endif %}{% if it.loc %}<span class="meta"> · {{ it.loc }}</span>{% endif %}</h3>
-<div style="margin-top:6px">{{ it.message_ar }}</div>
-<div class="en">{{ it.message_en }}</div>
-{% if it.fix_ar %}<div class="fix"><b>التصحيح المقترح</b>{{ it.fix_ar }}{% if it.fix_en %}<div class="en">{{ it.fix_en }}</div>{% endif %}</div>{% endif %}
-<div class="tags"><span class="tag2 {{ 'code' if it.method.startswith('code') else '' }}">الطريقة: {{ it.method|method_ar }}</span><span class="tag2">الثقة: {{ {'high':'عالية','medium':'متوسطة','low':'منخفضة، راجعها بعينك'}.get(it.confidence, it.confidence) }}</span></div>
-<div class="en" style="margin-top:6px;font-size:12px">{{ it.method }}</div>
-{% if r.meta.kind == "pptx" and it.crop and not r.meta.pptx_real %}<div class="note">مخطط تقريبي للشريحة يعرض صناديق النصوص فقط، وليس صورة حقيقية لها (تعذّر الرسم الحقيقي لهذا الملف). ارفع PDF للحصول على صورة حقيقية.</div>{% endif %}{% if it.crop %}<img class="crop" loading="lazy" src="{{ url_for('img', jid=r.meta.id, name=it.crop) }}" alt="">{% endif %}
-</div></div>
-{% endfor %}
-</div>
 
 {% if pages %}
-<div class="card sec"><h2>الصفحات المعلَّمة</h2>
+<details class="fold"><summary>الصفحات المعلَّمة ({{ pages|length }})</summary><div>
 {% for pg, fn in pages|dictsort %}
 <h3 style="margin:22px 0 8px">صفحة {{ pg }}</h3>
-<img class="pageimg" loading="lazy" src="{{ url_for('img', jid=r.meta.id, name=fn) }}" alt="صفحة {{ pg }} بعلامات الأخطاء">
+<img class="pageimg" loading="lazy" src="{{ url_for('img', jid=r.meta.id, name=fn) }}" alt="صفحة {{ pg }}">
 {% endfor %}
-</div>
+</div></details>
 {% endif %}
 <p class="note">لكل نتيجة طريقة فحص ودرجة ثقة. راجع بعينك ما كانت ثقته متوسطة أو منخفضة.</p>
-<script>
-const f=document.getElementById('flt'); if(f) f.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)return;
- f.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));
- document.querySelectorAll('.finding').forEach(el=>{el.style.display=(b.dataset.f==='all'||el.dataset.sev===b.dataset.f)?'':'none'})});
-</script>
+
+<a class="top" href="#" aria-label="أعلى">↑</a>
 {% endblock %}
