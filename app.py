@@ -6,7 +6,7 @@ from flask import (Flask, abort, redirect, render_template, request, send_file, 
 import fitz
 from PIL import Image
 
-import csv, re, engine, fixes, report, autofix, scoring
+import csv, re, engine, fixes, report, autofix, scoring, textlayer
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 40 * 1024 * 1024
@@ -105,6 +105,9 @@ class JobError(Exception):
         self.msg, self.code = msg, code
 
 
+TEXT_CHECKS = ("R1", "R2", "R3", "R5", "R9")  # rules that read the PDF text layer
+
+
 def run_job(save, fname, pasted, form, files, ocr):
     """Runs one check. save(dst) writes the uploaded file to dst (None when only text is pasted). Returns the job id."""
     jid = secrets.token_urlsafe(12).replace("-", "a").replace("_", "b")
@@ -120,6 +123,8 @@ def run_job(save, fname, pasted, form, files, ocr):
     kind = "text"
     pptx_real = False
     ar_n = 0
+    tl = None
+    pdir = os.path.join(jdir, "pages")
     try:
         if save:
             fname = os.path.basename(fname)
@@ -135,6 +140,11 @@ def run_job(save, fname, pasted, form, files, ocr):
                     ar_n = 1
                 engine.pixel_checks_pdf(doc, n_pages, F, brand, ocr=ocr)
                 engine.consistency_pdf(doc, n_pages, F)
+                if ar_n >= 3:
+                    try:
+                        tl = textlayer.verify_pdf(doc, n_pages, pdir)
+                    except Exception:
+                        tl = None
             elif ext in ("png", "jpg", "jpeg", "webp"):
                 kind = "image"
                 img = Image.open(src).convert("RGB")
@@ -179,14 +189,18 @@ def run_job(save, fname, pasted, form, files, ocr):
                 a, e = None, None
             if a:
                 it["fix_ar"], it["fix_en"] = a, e
-    pdir = os.path.join(jdir, "pages")
+    limited = tl["reasons"] if tl and tl["state"] == "suspect" else None
+    if limited:  # text-based findings rest on a text layer that may not match the page
+        for it in items:
+            if it["check"] in TEXT_CHECKS:
+                it["unverified"] = True
     pages = report.mark_pages(doc, items, pdir)
     rows = report.status_rows(dict(F.stats))
     applied = sum(1 for r_ in rows if r_["status"] != "not_run")
-    sc = scoring.compute(items, engine.RULES, n_pages, applied, len(rows), ar_n >= 3, kind)
+    sc = scoring.compute(items, engine.RULES, n_pages, applied, len(rows), ar_n >= 3, kind, limited)
     meta = dict(id=jid, filename=fname, kind=kind, pptx_real=pptx_real, pages=n_pages, when=datetime.now().strftime("%Y-%m-%d %H:%M"),
                 seconds=round(time.time() - t0, 1), brand=brand.summary() if brand.active() else None,
-                pasted=bool(pasted), ocr=ocr, tone=F.tone, score=sc)
+                pasted=bool(pasted), ocr=ocr, tone=F.tone, score=sc, textlayer=tl)
     report.build_pdf(os.path.join(jdir, "report.pdf"), meta, items, rows, pdir)
     json.dump(dict(meta=meta, items=items, rows=rows, pages=pages), open(os.path.join(jdir, "result.json"), "w"), ensure_ascii=False)
     shutil.rmtree(work, ignore_errors=True)  # the uploaded design is deleted right after the check
@@ -245,7 +259,7 @@ def _batch_worker(bid):
             jid = run_job(lambda dst, p=path: shutil.copy(p, dst), it["name"], "", {}, {}, False)
             r = load(jid)
             its = r["items"]
-            it.update(status="done", jid=jid, kind=r["meta"]["kind"], pages=r["meta"]["pages"], score=r["meta"]["score"]["value"], applied=r["meta"]["score"].get("applied"), total=r["meta"]["score"].get("total"),
+            it.update(status="done", jid=jid, kind=r["meta"]["kind"], pages=r["meta"]["pages"], score=r["meta"]["score"]["value"], state=r["meta"]["score"].get("state"), applied=r["meta"]["score"].get("applied"), total=r["meta"]["score"].get("total"),
                       errors=sum(1 for x in its if x["severity"] == "error"), warns=sum(1 for x in its if x["severity"] == "warn"))
         except JobError as e:
             it.update(status="error", msg=e.msg)
@@ -293,7 +307,9 @@ def _batch_stats(st):
     done = [i for i in st["items"] if i["status"] == "done"]
     stale = (not st["done"]) and time.time() - os.path.getmtime(os.path.join(_bpath(st["id"]), "batch.json")) > 600
     for it in done:
-        if it["score"] is None:
+        if it.get("state") == "limited":
+            it.update(band_ar="مراجعة يدوية", color="#ffb454")
+        elif it["score"] is None:
             it.update(band_ar="غير منطبق", color="#888")
         else:
             key, ar, color = scoring.band(it["score"])
