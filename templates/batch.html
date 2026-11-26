@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}دفعة ملفات{% endblock %}
+{% block body %}
+{% if live %}<meta http-equiv="refresh" content="3">{% endif %}
+<section class="hero" style="padding-bottom:10px">
+<div class="eyebrow">batch_</div>
+<h1 style="font-size:clamp(34px,5vw,56px)">لوحة الدفعة<em>.</em></h1>
+<p class="lead">{{ st['items']|length }} ملفات · {{ st.when }}{% if live %} · جارٍ الفحص: {{ s.finished }} من {{ st['items']|length }}{% endif %}</p>
+</section>
+{% if live %}<div class="prog"><i style="width:{{ (100*s.finished/st['items']|length)|round }}%"></i></div>
+<p class="note">الصفحة تتحدّث تلقائيًا. يمكنك تركها مفتوحة.</p>{% endif %}
+{% if s.stale %}<div class="err">توقف الفحص قبل اكتماله (ربما أُعيد تشغيل الخادم). النتائج الظاهرة أدناه هي ما اكتمل فقط، ويمكنك إعادة رفع الباقي.</div>{% endif %}
+
+{% if s.done %}
+<div class="stats">
+<div><b style="color:{{ s.avg_band[2] }}">{{ s.avg }}</b><span>متوسط الدرجة من 100 · {{ s.avg_band[1] }}</span></div>
+<div><b style="color:var(--err)">{{ s.errors }}</b><span>خطأ في كل الملفات</span></div>
+<div><b style="color:var(--warn)">{{ s.warns }}</b><span>تنبيه في كل الملفات</span></div>
+<div><b style="color:var(--green)">{{ s.fixable }}</b><span>تصحيح تلقائي جاهز (PPTX)</span></div>
+</div>
+{% endif %}
+
+<div class="actions">
+{% if s.done %}<a class="btn" href="{{ url_for('batch_csv', bid=st.id) }}">تنزيل ملخص الدفعة CSV</a>
+{% if s.fixable %}<a class="btn ghost" href="{{ url_for('batch_zip', bid=st.id) }}">تنزيل ملفات PPTX المصحَّحة (ZIP)</a>{% endif %}{% endif %}
+<a class="btn ghost" href="/">فحص ملفات أخرى</a>
+</div>
+
+<div class="sortbar">ترتيب القائمة:
+<a href="{{ url_for('batch_view', bid=st.id) }}" class="{{ '' if sort else 'on' }}">حسب الرفع</a>
+<a href="{{ url_for('batch_view', bid=st.id, sort='score') }}" class="{{ 'on' if sort=='score' else '' }}">الأضعف أولًا</a></div>
+
+<div class="bfiles">
+{% for it in items %}
+<div class="bf">
+<div class="bn"><b dir="auto">{{ it.name }}</b>
+<span class="sm">{% if it.status=='done' %}{{ kind_ar.get(it.kind, it.kind) }} · {{ it.pages }} صفحة · {{ it.errors }} خطأ · {{ it.warns }} تنبيه{% if it.fixable %} · {{ it.fixable }} تصحيح تلقائي{% endif %}
+{% elif it.status=='error' %}<span style="color:#ffb0b0">{{ it.msg }}</span>
+{% elif it.status=='running' %}جارٍ الفحص…
+{% else %}في الانتظار{% endif %}</span></div>
+{% if it.status=='done' %}
+<div class="bs" style="--c:{{ it.color }}"><b>{{ it.score }}</b><span>{{ it.band_ar }}</span></div>
+<a class="btn ghost sm2" href="{{ url_for('result', jid=it.jid) }}">فتح التقرير</a>
+{% endif %}
+</div>
+{% endfor %}
+</div>
+
+{% if s.common %}
+<details class="fold" open><summary>أكثر المشكلات تكرارًا في الدفعة</summary><div>
+<table>
+{% for g in s.common %}<tr><td><b>{{ g.name }}</b></td><td>{{ g.n }} ملاحظة</td><td class="meta">في {{ g.files }} من {{ s.done|length }} ملفات</td></tr>{% endfor %}
+</table></div></details>
+{% endif %}
+<p class="note">الدرجة ملخّص رقمي لنتائج فحوصات هذه الأداة فقط (راجع «كيف حُسبت الدرجة؟» داخل تقرير كل ملف)، وليست حكمًا على جودة التصميم. الفحص هنا بقواعد عامة بلا دليل هوية. يُحذف كل شيء تلقائيًا بعد ساعتين.</p>
+{% endblock %}
