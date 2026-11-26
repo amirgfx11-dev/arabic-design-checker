@@ -161,11 +161,20 @@ def build_pdf(path, meta, items, rows, page_dir):
     ne = sum(1 for i in items if i["severity"] == "error")
     nw = sum(1 for i in items if i["severity"] == "warn")
     y += 14
-    y = put(d, y, f"النتيجة: {ne} خطأ مؤكد و{nw} تنبيه.", font(40, True), RED if ne else (30, 130, 60), ar=True)
+    lim = (meta.get("score") or {}).get("state") == "limited"
+    if lim:
+        ORG = (200, 110, 0)
+        y = put(d, y, "يحتاج مراجعة يدوية: تغطية محدودة، بلا درجة.", font(40, True), ORG, ar=True)
+        y = put(d, y, "النص المخزَّن داخل الـPDF لا يطابق ما هو مرسوم على الصفحة. الفحوص النصية (الإملاء والأرقام والتشكيل والاتجاه والنبرة) تقرأ هذا النص، فنتائجها غير موثّقة، وغياب الملاحظات فيها لا يعني السلامة. الفحوص البصرية سارية.", font(26), ORG, ar=True)
+        y = put(d, y, f"ملاحظات مرصودة: {ne} خطأ و{nw} تنبيه (النصية منها غير موثّقة).", font(28), (60, 60, 60), ar=True)
+    else:
+        y = put(d, y, f"النتيجة: {ne} خطأ مؤكد و{nw} تنبيه.", font(40, True), RED if ne else (30, 130, 60), ar=True)
     y += 10
     for r in rows:
         st = {"clean": "سليم", "flagged": f"{r['flagged']} ملاحظة", "not_run": "لم يُختبر"}[r["status"]]
         col = {"clean": (30, 130, 60), "flagged": RED, "not_run": (110, 110, 110)}[r["status"]]
+        if lim and r["key"] in ("R1", "R2", "R3", "R5", "R9") and r["status"] != "not_run":
+            st, col = st + " (غير موثّق)", (200, 110, 0)
         y = put(d, y, f"{r['name_ar']} ({r['key']}): {st}" + (f" - فُحص {r['checked']}" if r["checked"] else ""), font(28), col, ar=True)
     y += 14
     y = put(d, y, "ملاحظة: يعتمد الفحص على كود ثابت دون نموذج ذكاء اصطناعي، لذا يعطي الملف نفسه النتيجة نفسها دائمًا. يقرأ الكود طبقة النص والبكسلات فقط. أما اتجاه الأسهم والأيقونات وقراءة الصور المسطحة فتحتاج نموذج رؤية، وهو غير متوفر في هذه النسخة.", font(22), (90, 90, 90), ar=True)
