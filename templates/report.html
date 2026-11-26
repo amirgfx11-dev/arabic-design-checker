@@ -36,7 +36,7 @@
 <summary><input type="checkbox" class="kall" data-k="{{ k.key }}" {% if k.on %}checked{% endif %}><span>{{ k.name }}</span><span class="pill">{{ k.its|length }}</span>{% if not k.on %}<span class="sm">غير محدد افتراضيًا: يغيّر الصياغة، راجعه بعينك</span>{% endif %}</summary>
 {% for c in k.its %}
 <label class="row"><input type="checkbox" name="c" value="{{ c.id }}" data-k="{{ k.key }}" {% if k.on %}checked{% endif %}>
-<span><span class="ctx">{{ c.ctx_before }}<del>{{ c.before }}</del> <ins>{{ c.after }}</ins>{{ c.ctx_after }}</span>
+<span><span class="ctx">{{ c.ctx_before }}<del>{{ c.before if c.before.strip() else 'مسافة' }}</del> <ins>{{ (c.after if c.after.strip() else 'مسافة واحدة') if c.after else '(حذف)' }}</ins>{{ c.ctx_after }}</span>
 <span class="sm" style="display:block">شريحة {{ c.slide }} · {{ c.shape }} · {{ c.note_ar }} · الثقة: {{ {'high':'عالية','medium':'متوسطة','low':'منخفضة'}[c.confidence] }} · {{ c.method|method_ar }}</span></span></label>
 {% endfor %}
 </details>
