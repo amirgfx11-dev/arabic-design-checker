@@ -23,7 +23,8 @@
 <section class="afx" id="autofix">
 <h2>التصحيح التلقائي <span class="pill">PPTX</span></h2>
 {% if corr.corrections %}
-<p class="sum"><b>سنصحّح {{ corr.corrections|length }} {{ 'موضعًا' if corr.corrections|length > 10 else 'مواضع' }} في ملفك:</b> {% for k in ckinds %}{{ k.name }} ({{ k.its|length }}){{ '، ' if not loop.last }}{% endfor %}.</p>
+{% set ns = namespace(n=0) %}{% for k in ckinds if k.on %}{% set ns.n = ns.n + k.its|length %}{% endfor %}
+<p class="sum"><b>سنصحّح {{ ns.n }} {{ 'موضعًا' if ns.n > 10 else 'مواضع' }} في ملفك:</b> {% for k in ckinds if k.on %}{{ k.name }} ({{ k.its|length }}){{ '، ' if not loop.last }}{% endfor %}.{% for k in ckinds if not k.on %} وهناك {{ k.its|length }} اقتراحات في «{{ k.name }}» غير محدّدة افتراضيًا، راجعها بنفسك.{% endfor %}</p>
 <p class="note" style="margin:0 0 4px">كل سطر أدناه جملة تصف ما سيتغيّر وأين. أزل العلامة عمّا لا تريده، ثم نزّل النسخة المصحَّحة. الملف الأصلي لا يتغيّر، والخط والحجم واللون تبقى كما هي.</p>
 <form method="post" id="afxform">
 <div class="bar2">
