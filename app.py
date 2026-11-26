@@ -6,7 +6,7 @@ from flask import (Flask, abort, redirect, render_template, request, send_file, 
 import fitz
 from PIL import Image
 
-import csv, engine, fixes, report, autofix
+import csv, engine, fixes, report, autofix, scoring
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 40 * 1024 * 1024
@@ -96,13 +96,14 @@ def build_brand(form, files, tmpdir):
     return b
 
 
-@app.route("/check", methods=["POST"])
-def check():
-    cleanup()
-    up = request.files.get("design")
-    pasted = request.form.get("pasted", "").strip()
-    if (not up or not up.filename) and not pasted:
-        return render_template("index.html", error="يرجى رفع ملف تصميم أو لصق نص للفحص.", ocr=engine.tesseract_available(), max_pages=MAX_PAGES), 400
+class JobError(Exception):
+    def __init__(self, msg, code=400):
+        super().__init__(msg)
+        self.msg, self.code = msg, code
+
+
+def run_job(save, fname, pasted, form, files, ocr):
+    """Runs one check. save(dst) writes the uploaded file to dst (None when only text is pasted). Returns the job id."""
     jid = secrets.token_urlsafe(12).replace("-", "a").replace("_", "b")
     jdir = os.path.join(DATA, jid)
     os.makedirs(jdir)
@@ -110,22 +111,21 @@ def check():
     os.makedirs(work)
     t0 = time.time()
     F = engine.Findings()
-    brand = build_brand(request.form, request.files, work)
+    brand = build_brand(form, files, work)
     doc = None
     n_pages = 1
-    fname = "نص ملصق"
     kind = "text"
     pptx_real = False
     try:
-        if up and up.filename:
-            fname = os.path.basename(up.filename)
+        if save:
+            fname = os.path.basename(fname)
             ext = fname.lower().rsplit(".", 1)[-1] if "." in fname else ""
             src = os.path.join(work, "input." + ext)
-            up.save(src)
+            save(src)
             if ext == "pdf":
                 kind = "pdf"
                 doc, n_pages, _ = engine.analyze_pdf(src, F, brand, max_pages=MAX_PAGES)
-                engine.pixel_checks_pdf(doc, n_pages, F, brand, ocr=bool(request.form.get("ocr")))
+                engine.pixel_checks_pdf(doc, n_pages, F, brand, ocr=ocr)
                 engine.consistency_pdf(doc, n_pages, F)
             elif ext in ("png", "jpg", "jpeg", "webp"):
                 kind = "image"
@@ -146,14 +146,16 @@ def check():
                     doc = engine.pptx_wireframe_doc(F.pptx)
             else:
                 shutil.rmtree(jdir, ignore_errors=True)
-                return render_template("index.html", error="نوع الملف غير مدعوم. الأنواع المدعومة: PDF وPPTX وPNG وJPG.", ocr=engine.tesseract_available(), max_pages=MAX_PAGES), 400
+                raise JobError("نوع الملف غير مدعوم. الأنواع المدعومة: PDF وPPTX وPNG وJPG.")
+        else:
+            fname = "نص ملصق"
         if pasted:
             engine.analyze_text(pasted, F, brand)
-            if kind == "text":
-                kind = "text"
+    except JobError:
+        raise
     except Exception as e:  # unreadable / corrupt file
         shutil.rmtree(jdir, ignore_errors=True)
-        return render_template("index.html", error="تعذّرت قراءة الملف (%s). جرّب تصديره بصيغة PDF مرة أخرى." % type(e).__name__, ocr=engine.tesseract_available(), max_pages=MAX_PAGES), 400
+        raise JobError("تعذّرت قراءة الملف (%s). جرّب تصديره بصيغة PDF مرة أخرى." % type(e).__name__)
     items = sorted(F.items, key=lambda i: ((i["page"] or 0), {"error": 0, "warn": 1, "info": 2}[i["severity"]]))
     for it in items:
         if not it.get("fix_ar"):
@@ -166,13 +168,200 @@ def check():
     pdir = os.path.join(jdir, "pages")
     pages = report.mark_pages(doc, items, pdir)
     rows = report.status_rows(dict(F.stats))
+    sc = scoring.compute(items, engine.RULES, n_pages)
     meta = dict(id=jid, filename=fname, kind=kind, pptx_real=pptx_real, pages=n_pages, when=datetime.now().strftime("%Y-%m-%d %H:%M"),
                 seconds=round(time.time() - t0, 1), brand=brand.summary() if brand.active() else None,
-                pasted=bool(pasted), ocr=bool(request.form.get("ocr")), tone=F.tone)
+                pasted=bool(pasted), ocr=ocr, tone=F.tone, score=sc)
     report.build_pdf(os.path.join(jdir, "report.pdf"), meta, items, rows, pdir)
     json.dump(dict(meta=meta, items=items, rows=rows, pages=pages), open(os.path.join(jdir, "result.json"), "w"), ensure_ascii=False)
     shutil.rmtree(work, ignore_errors=True)  # the uploaded design is deleted right after the check
+    return jid
+
+
+@app.route("/check", methods=["POST"])
+def check():
+    cleanup()
+    up = request.files.get("design")
+    pasted = request.form.get("pasted", "").strip()
+    has = bool(up and up.filename)
+    if not has and not pasted:
+        return render_template("index.html", error="يرجى رفع ملف تصميم أو لصق نص للفحص.", ocr=engine.tesseract_available(), max_pages=MAX_PAGES), 400
+    try:
+        jid = run_job(up.save if has else None, up.filename if has else None, pasted, request.form, request.files, bool(request.form.get("ocr")))
+    except JobError as e:
+        return render_template("index.html", error=e.msg, ocr=engine.tesseract_available(), max_pages=MAX_PAGES), e.code
     return redirect(url_for("result", jid=jid))
+
+
+# ---------- batch ----------
+MAX_BATCH = 10
+BATCH_EXT = ("pdf", "pptx", "png", "jpg", "jpeg", "webp")
+KIND_AR = {"pdf": "PDF", "pptx": "PPTX", "image": "صورة", "text": "نص"}
+
+
+def _bpath(bid):
+    if not bid.isalnum():
+        abort(404)
+    return os.path.join(DATA, "batch" + bid)
+
+
+def _bsave(bid, st):
+    p = os.path.join(_bpath(bid), "batch.json")
+    json.dump(st, open(p + ".tmp", "w"), ensure_ascii=False)
+    os.replace(p + ".tmp", p)
+
+
+def _bload(bid):
+    p = os.path.join(_bpath(bid), "batch.json")
+    if not os.path.exists(p):
+        abort(404)
+    return json.load(open(p))
+
+
+def _batch_worker(bid):
+    st = _bload(bid)
+    for i, it in enumerate(st["items"]):
+        if it["status"] != "queued":
+            continue
+        it["status"] = "running"
+        _bsave(bid, st)
+        path = os.path.join(_bpath(bid), "in", it["file"])
+        try:
+            jid = run_job(lambda dst, p=path: shutil.copy(p, dst), it["name"], "", {}, {}, False)
+            r = load(jid)
+            its = r["items"]
+            it.update(status="done", jid=jid, kind=r["meta"]["kind"], pages=r["meta"]["pages"], score=r["meta"]["score"]["value"],
+                      errors=sum(1 for x in its if x["severity"] == "error"), warns=sum(1 for x in its if x["severity"] == "warn"))
+        except JobError as e:
+            it.update(status="error", msg=e.msg)
+        except Exception as e:
+            it.update(status="error", msg="تعذّر فحص الملف (%s)." % type(e).__name__)
+        _bsave(bid, st)
+    st["done"] = True
+    _bsave(bid, st)
+
+
+@app.route("/batch", methods=["POST"])
+def batch():
+    cleanup()
+    fs = [f for f in request.files.getlist("designs") if f.filename]
+    err = None
+    if not fs:
+        err = "اختر ملفًا واحدًا على الأقل."
+    elif len(fs) > MAX_BATCH:
+        err = "الحد الأقصى %d ملفات في الدفعة الواحدة." % MAX_BATCH
+    if err:
+        return render_template("index.html", error=err, ocr=engine.tesseract_available(), max_pages=MAX_PAGES), 400
+    bid = secrets.token_hex(8)
+    os.makedirs(os.path.join(_bpath(bid), "in"))
+    items = []
+    for i, f in enumerate(fs):
+        name = os.path.basename(f.filename)
+        ext = name.lower().rsplit(".", 1)[-1] if "." in name else ""
+        if ext not in BATCH_EXT:
+            items.append(dict(name=name, file="", status="error", msg="نوع الملف غير مدعوم."))
+            continue
+        fn = "%d.%s" % (i, ext)
+        f.save(os.path.join(_bpath(bid), "in", fn))
+        items.append(dict(name=name, file=fn, status="queued"))
+    st = dict(id=bid, created=time.time(), when=datetime.now().strftime("%Y-%m-%d %H:%M"), items=items, done=False)
+    if not any(i["status"] == "queued" for i in items):
+        st["done"] = True
+    _bsave(bid, st)
+    if not st["done"]:
+        import threading
+        threading.Thread(target=_batch_worker, args=(bid,), daemon=True).start()
+    return redirect(url_for("batch_view", bid=bid))
+
+
+def _batch_stats(st):
+    done = [i for i in st["items"] if i["status"] == "done"]
+    stale = (not st["done"]) and time.time() - os.path.getmtime(os.path.join(_bpath(st["id"]), "batch.json")) > 600
+    for it in done:
+        key, ar, color = scoring.band(it["score"])
+        it.update(band_ar=ar, color=color)
+        cj = os.path.join(DATA, it["jid"], "corrections.json")
+        it["fixable"] = 0
+        if os.path.exists(cj):
+            try:
+                it["fixable"] = sum(1 for c in json.load(open(cj))["corrections"] if c.get("default_on"))
+            except Exception:
+                pass
+    avg = round(sum(i["score"] for i in done) / len(done)) if done else None
+    common = {}
+    for it in done:
+        try:
+            for x in load(it["jid"])["items"]:
+                if x["severity"] in ("error", "warn"):
+                    g = common.setdefault(x["check"], dict(name=engine.RULES[x["check"]][1], n=0, files=set()))
+                    g["n"] += 1
+                    g["files"].add(it["jid"])
+        except Exception:
+            pass
+    common = sorted(({"name": g["name"], "n": g["n"], "files": len(g["files"])} for g in common.values()), key=lambda g: -g["n"])[:5]
+    return dict(done=done, avg=avg, stale=stale, common=common,
+                errors=sum(i["errors"] for i in done), warns=sum(i["warns"] for i in done),
+                finished=sum(1 for i in st["items"] if i["status"] in ("done", "error")),
+                fixable=sum(i["fixable"] for i in done),
+                avg_band=scoring.band(avg) if avg is not None else None)
+
+
+@app.route("/b/<bid>")
+def batch_view(bid):
+    st = _bload(bid)
+    stats = _batch_stats(st)
+    items = list(st["items"])
+    if request.args.get("sort") == "score":
+        items.sort(key=lambda i: (i["status"] != "done", i.get("score", 0)))
+    return render_template("batch.html", st=st, items=items, s=stats, sort=request.args.get("sort", ""), kind_ar=KIND_AR,
+                           live=(not st["done"]) and not stats["stale"])
+
+
+@app.route("/b/<bid>/summary.csv")
+def batch_csv(bid):
+    st = _bload(bid)
+    _batch_stats(st)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["file", "type", "pages", "score_0_100", "band", "errors", "warnings", "auto_fixable", "status"])
+    for i in st["items"]:
+        if i["status"] == "done":
+            w.writerow([i["name"], i["kind"], i["pages"], i["score"], i["band_ar"], i["errors"], i["warns"], i["fixable"], "ok"])
+        else:
+            w.writerow([i["name"], "", "", "", "", "", "", "", i.get("msg", i["status"])])
+    resp = make_response("\ufeff" + buf.getvalue())
+    resp.headers["Content-Type"] = "text/csv; charset=utf-8"
+    resp.headers["Content-Disposition"] = "attachment; filename=batch-summary.csv"
+    return resp
+
+
+@app.route("/b/<bid>/fixed.zip")
+def batch_zip(bid):
+    st = _bload(bid)
+    buf = io.BytesIO()
+    n = 0
+    tmp = os.path.join(_bpath(bid), "fixed")
+    os.makedirs(tmp, exist_ok=True)
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for i in st["items"]:
+            if i["status"] != "done" or i["kind"] != "pptx":
+                continue
+            jd = os.path.join(DATA, i["jid"])
+            try:
+                corr = json.load(open(os.path.join(jd, "corrections.json")))
+            except Exception:
+                continue
+            ids = [c["id"] for c in corr["corrections"] if c.get("default_on")]
+            if not ids:
+                continue
+            out = os.path.join(tmp, i["jid"] + ".pptx")
+            autofix.apply(os.path.join(jd, "original.pptx"), out, ids, corr.get("numeral_target"), corr.get("tone_dom"))
+            z.write(out, os.path.splitext(i["name"])[0] + "-corrected.pptx")
+            n += 1
+    if not n:
+        abort(404)
+    buf.seek(0)
+    return send_file(buf, mimetype="application/zip", as_attachment=True, download_name="corrected-pptx-files.zip")
 
 
 def _img_to_pdf_bytes(img):
