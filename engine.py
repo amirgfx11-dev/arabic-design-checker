@@ -159,7 +159,13 @@ def spell_check_word(w):
             if m:
                 if stem.startswith(rep) or (note.startswith("preferred") and False):
                     continue
-                fixed = pre + rep + stem[m.end():]
+                if m.re.groups:
+                    tail = stem[m.start(1):]
+                    if tail[:1] == "ه" and rep in ("إدار", "إضاف", "إعاد", "إقام"):
+                        tail = "ة" + tail[1:]
+                else:
+                    tail = stem[m.end():]
+                fixed = pre + rep + tail
                 if fixed != base:
                     return base, fixed, note
     return None
