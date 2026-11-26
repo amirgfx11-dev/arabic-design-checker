@@ -6,7 +6,7 @@ from flask import (Flask, abort, redirect, render_template, request, send_file, 
 import fitz
 from PIL import Image
 
-import engine, report
+import engine, fixes, report
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 40 * 1024 * 1024
@@ -53,6 +53,16 @@ def healthz():
     return "ok"
 
 
+@app.template_filter("method_ar")
+def method_ar(m):
+    m = m or ""
+    if m.startswith("code + OCR"):
+        return "كود + قراءة OCR"
+    if m.startswith("code"):
+        return "كود ثابت"
+    return "بمساعدة نموذج"
+
+
 @app.route("/")
 def index():
     return render_template("index.html", ocr=engine.tesseract_available(), max_pages=MAX_PAGES)
@@ -92,7 +102,7 @@ def check():
     up = request.files.get("design")
     pasted = request.form.get("pasted", "").strip()
     if (not up or not up.filename) and not pasted:
-        return render_template("index.html", error="ارفع ملف تصميم أو الصق نص للفحص.", ocr=engine.tesseract_available(), max_pages=MAX_PAGES), 400
+        return render_template("index.html", error="يرجى رفع ملف تصميم أو لصق نص للفحص.", ocr=engine.tesseract_available(), max_pages=MAX_PAGES), 400
     jid = secrets.token_urlsafe(12).replace("-", "a").replace("_", "b")
     jdir = os.path.join(DATA, jid)
     os.makedirs(jdir)
@@ -103,7 +113,7 @@ def check():
     brand = build_brand(request.form, request.files, work)
     doc = None
     n_pages = 1
-    fname = "نص ملصوق"
+    fname = "نص ملصق"
     kind = "text"
     pptx_real = False
     try:
@@ -131,21 +141,29 @@ def check():
                     doc = engine.pptx_wireframe_doc(F.pptx)
             else:
                 shutil.rmtree(jdir, ignore_errors=True)
-                return render_template("index.html", error="نوع الملف مش مدعوم. المدعوم: PDF وPNG وJPG وPPTX.", ocr=engine.tesseract_available(), max_pages=MAX_PAGES), 400
+                return render_template("index.html", error="نوع الملف غير مدعوم. الأنواع المدعومة: PDF وPPTX وPNG وJPG.", ocr=engine.tesseract_available(), max_pages=MAX_PAGES), 400
         if pasted:
             engine.analyze_text(pasted, F, brand)
             if kind == "text":
                 kind = "text"
     except Exception as e:  # unreadable / corrupt file
         shutil.rmtree(jdir, ignore_errors=True)
-        return render_template("index.html", error="مقدرناش نقرأ الملف (%s). جرّب تصدّره PDF تاني." % type(e).__name__, ocr=engine.tesseract_available(), max_pages=MAX_PAGES), 400
+        return render_template("index.html", error="تعذّرت قراءة الملف (%s). جرّب تصديره بصيغة PDF مرة أخرى." % type(e).__name__, ocr=engine.tesseract_available(), max_pages=MAX_PAGES), 400
     items = sorted(F.items, key=lambda i: ((i["page"] or 0), {"error": 0, "warn": 1, "info": 2}[i["severity"]]))
+    for it in items:
+        if not it.get("fix_ar"):
+            try:
+                a, e = fixes.suggest(it, brand)
+            except Exception:
+                a, e = None, None
+            if a:
+                it["fix_ar"], it["fix_en"] = a, e
     pdir = os.path.join(jdir, "pages")
     pages = report.mark_pages(doc, items, pdir)
     rows = report.status_rows(dict(F.stats))
     meta = dict(id=jid, filename=fname, kind=kind, pptx_real=pptx_real, pages=n_pages, when=datetime.now().strftime("%Y-%m-%d %H:%M"),
                 seconds=round(time.time() - t0, 1), brand=brand.summary() if brand.active() else None,
-                pasted=bool(pasted), ocr=bool(request.form.get("ocr")))
+                pasted=bool(pasted), ocr=bool(request.form.get("ocr")), tone=F.tone)
     report.build_pdf(os.path.join(jdir, "report.pdf"), meta, items, rows, pdir)
     json.dump(dict(meta=meta, items=items, rows=rows, pages=pages), open(os.path.join(jdir, "result.json"), "w"), ensure_ascii=False)
     shutil.rmtree(work, ignore_errors=True)  # the uploaded design is deleted right after the check
