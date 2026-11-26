@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}مدقق التصميم العربي{% endblock %}</title>
+<style>
+@font-face{font-family:"NaskhApp";src:url("{{ url_for('static', filename='fonts/NotoNaskhArabic-Regular.ttf') }}");font-weight:400}
+@font-face{font-family:"NaskhApp";src:url("{{ url_for('static', filename='fonts/NotoNaskhArabic-Bold.ttf') }}");font-weight:700}
+:root{--ink:#14232b;--mut:#5b6b73;--line:#dfe5e8;--bg:#f6f8f9;--brand:#0f5c6e;--err:#dc2626;--warn:#ea7808;--ok:#1b8a45}
+*{box-sizing:border-box}
+body{margin:0;font-family:"NaskhApp","Noto Naskh Arabic",Tahoma,Arial,sans-serif;background:var(--bg);color:var(--ink);line-height:1.7;font-size:17px}
+header{background:#fff;border-bottom:1px solid var(--line)}
+.wrap{max-width:1080px;margin:0 auto;padding:18px 20px}
+header .wrap{display:flex;align-items:center;justify-content:space-between;gap:12px}
+header a{color:var(--ink);text-decoration:none;font-weight:700;font-size:20px}
+.tag{font-size:13px;color:var(--mut)}
+.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:20px;margin:16px 0}
+h1{font-size:30px;margin:6px 0 4px}h2{font-size:22px;margin:0 0 10px}h3{font-size:18px;margin:0}
+.lead{color:var(--mut);margin:0 0 6px}
+label{display:block;font-weight:700;margin:12px 0 4px}
+input[type=text],input[type=number],select,textarea{width:100%;padding:10px 12px;border:1px solid #c6cfd4;border-radius:10px;font:inherit;background:#fff}
+textarea{min-height:110px}
+input[type=file]{width:100%;padding:12px;border:2px dashed #9fb3bb;border-radius:12px;background:#fbfdfd;font:inherit}
+.btn{display:inline-block;background:var(--brand);color:#fff;border:0;border-radius:12px;padding:12px 24px;font:inherit;font-weight:700;cursor:pointer;text-decoration:none}
+.btn.sec{background:#fff;color:var(--brand);border:1px solid var(--brand)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:720px){.grid2{grid-template-columns:1fr}}
+.err{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;padding:10px 14px;border-radius:10px;margin:10px 0}
+.note{font-size:14px;color:var(--mut)}
+details{margin-top:10px}summary{cursor:pointer;font-weight:700}
+.badge{display:inline-block;padding:1px 10px;border-radius:99px;font-size:13px;font-weight:700;color:#fff}
+.b-error{background:var(--err)}.b-warn{background:var(--warn)}.b-clean{background:var(--ok)}.b-not_run{background:#8a979d}.b-flagged{background:var(--err)}
+table{width:100%;border-collapse:collapse}td,th{padding:8px 10px;border-bottom:1px solid var(--line);text-align:right;vertical-align:top}
+.en{direction:ltr;text-align:left;color:var(--mut);font-size:14px;font-family:Arial,sans-serif}
+.finding{display:grid;grid-template-columns:44px 1fr;gap:12px;padding:14px 0;border-bottom:1px solid var(--line)}
+.num{width:36px;height:36px;border-radius:50%;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-family:Arial}
+.n-error{background:var(--err)}.n-warn{background:var(--warn)}
+.crop{max-width:100%;border:1px solid var(--line);border-radius:8px;margin-top:8px}
+.meta{font-size:13px;color:var(--mut)}
+.pageimg{width:100%;border:1px solid var(--line);border-radius:10px}
+.sum{display:flex;gap:14px;flex-wrap:wrap;margin:10px 0}
+.pill{background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 18px;font-size:15px}
+.pill b{font-size:26px;display:block}
+</style>
+</head>
+<body>
+<header><div class="wrap"><a href="/">مدقق التصميم العربي</a><span class="tag">النسخة الأولى · بدون حسابات · الملفات بتتمسح تلقائيًا بعد الفحص</span></div></header>
+<main class="wrap">{% block body %}{% endblock %}</main>
+</body></html>
