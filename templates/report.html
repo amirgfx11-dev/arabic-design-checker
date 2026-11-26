@@ -41,7 +41,7 @@
 <div>{{ it.message_ar }}</div>
 <div class="en">{{ it.message_en }}</div>
 <div class="meta">الطريقة: {{ it.method }} · الثقة: {{ {'high':'عالية','medium':'متوسطة','low':'منخفضة، راجعها بعينك'}.get(it.confidence, it.confidence) }}</div>
-{% if r.meta.kind == "pptx" and it.crop %}<div class="note">مخطط تقريبي للشريحة: مربعات النصوص بس، مش صورة حقيقية للشريحة. ارفع PDF لو عايز صورة حقيقية.</div>{% endif %}{% if it.crop %}<img class="crop" loading="lazy" src="{{ url_for('img', jid=r.meta.id, name=it.crop) }}" alt="">{% endif %}
+{% if r.meta.kind == "pptx" and it.crop and not r.meta.pptx_real %}<div class="note">مخطط تقريبي للشريحة: مربعات النصوص بس، مش صورة حقيقية للشريحة (الريندر الحقيقي مش متاح للملف ده). ارفع PDF لو عايز صورة حقيقية.</div>{% endif %}{% if it.crop %}<img class="crop" loading="lazy" src="{{ url_for('img', jid=r.meta.id, name=it.crop) }}" alt="">{% endif %}
 </div></div>
 {% endfor %}
 </div>
