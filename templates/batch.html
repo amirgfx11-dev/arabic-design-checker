@@ -34,12 +34,12 @@
 {% for it in items %}
 <div class="bf">
 <div class="bn"><b dir="auto">{{ it.name }}</b>
-<span class="sm">{% if it.status=='done' %}{{ kind_ar.get(it.kind, it.kind) }} · {{ it.pages }} صفحة · {{ it.errors }} خطأ · {{ it.warns }} تنبيه{% if it.applied is not none and it.applied is defined %} · انطبق {{ it.applied }} من {{ it.total }} فحص{% endif %}{% if it.score is none %} · لا يوجد محتوى عربي، الفحوص العربية غير منطبقة{% endif %}{% if it.fixable %} · {{ it.fixable }} تصحيح تلقائي{% endif %}
+<span class="sm">{% if it.status=='done' %}{{ kind_ar.get(it.kind, it.kind) }} · {{ it.pages }} صفحة · {{ it.errors }} خطأ · {{ it.warns }} تنبيه{% if it.applied is not none and it.applied is defined %} · انطبق {{ it.applied }} من {{ it.total }} فحص{% endif %}{% if it.state == 'limited' %} · تغطية محدودة: الطبقة النصية قد لا تطابق الصفحة، تلزم مراجعة يدوية{% elif it.score is none %} · لا يوجد محتوى عربي، الفحوص العربية غير منطبقة{% endif %}{% if it.fixable %} · {{ it.fixable }} تصحيح تلقائي{% endif %}
 {% elif it.status=='error' %}<span style="color:#ffb0b0">{{ it.msg }}</span>
 {% elif it.status=='running' %}جارٍ الفحص…
 {% else %}في الانتظار{% endif %}</span></div>
 {% if it.status=='done' %}
-{% if it.score is none %}<div class="bs" style="--c:#888"><b>—</b><span>لا عربي</span></div>{% else %}<div class="bs" style="--c:{{ it.color }}"><b>{{ it.score }}</b><span>{{ it.band_ar }}</span></div>{% endif %}
+{% if it.state == 'limited' %}<div class="bs" style="--c:#ffb454"><b>!</b><span>مراجعة يدوية</span></div>{% elif it.score is none %}<div class="bs" style="--c:#888"><b>—</b><span>لا عربي</span></div>{% else %}<div class="bs" style="--c:{{ it.color }}"><b>{{ it.score }}</b><span>{{ it.band_ar }}</span></div>{% endif %}
 <a class="btn ghost sm2" href="{{ url_for('result', jid=it.jid) }}">فتح التقرير</a>
 {% endif %}
 </div>
