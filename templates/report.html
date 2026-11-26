@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}تقرير: {{ r.meta.filename }}{% endblock %}
+{% block body %}
+<h1>التقرير</h1>
+<p class="lead">{{ r.meta.filename }} · {{ r.meta.pages }} صفحة · اتفحص في {{ r.meta.seconds }} ثانية · {{ r.meta.when }}</p>
+<div class="sum">
+<div class="pill"><b style="color:var(--err)">{{ ne }}</b>خطأ</div>
+<div class="pill"><b style="color:var(--warn)">{{ nw }}</b>تنبيه</div>
+<div class="pill"><b>{{ r.rows|selectattr('status','equalto','clean')|list|length }}</b>فحص سليم</div>
+<div class="pill"><b>{{ r.rows|selectattr('status','equalto','not_run')|list|length }}</b>لم يُختبر</div>
+</div>
+<p><a class="btn" href="{{ url_for('pdf', jid=r.meta.id) }}">تحميل التقرير PDF</a>
+<a class="btn sec" href="{{ url_for('fjson', jid=r.meta.id) }}">JSON</a>
+<a class="btn sec" href="/">فحص ملف تاني</a></p>
+
+<div class="card"><h2>الفحوصات: إيه اتفحص وإيه طلع سليم</h2>
+<table>
+{% for row in r.rows %}
+<tr><td style="width:32%"><b>{{ row.name_ar }}</b><div class="en">{{ row.key }} · {{ row.name_en }}</div></td>
+<td style="width:20%"><span class="badge b-{{ row.status }}">{% if row.status=='clean' %}سليم{% elif row.status=='flagged' %}{{ row.flagged }} ملاحظة{% else %}لم يُختبر{% endif %}</span>
+{% if row.checked %}<div class="meta">اتفحص {{ row.checked }} عنصر</div>{% endif %}</td>
+<td class="meta">{{ row.note }}</td></tr>
+{% endfor %}
+</table>
+</div>
+
+{% if r.meta.brand %}
+<div class="card"><h2>قواعد الهوية المطبّقة</h2>
+<p>الخطوط: <b>{{ r.meta.brand.fonts|join('، ') or '—' }}</b> · الألوان: <b class="en" style="display:inline">{{ r.meta.brand.colors|join(' ') or '—' }}</b> · الأرقام: <b>{{ {'indic':'هندية','west':'غربية','any':'أي نظام'}[r.meta.brand.numerals] }}</b>{% if r.meta.brand.min_size %} · أقل حجم خط: <b>{{ r.meta.brand.min_size }}pt</b>{% endif %}</p>
+{% if r.meta.brand.source_note %}<p class="note">{{ r.meta.brand.source_note }}</p>{% endif %}</div>
+{% endif %}
+
+<div class="card"><h2>الملاحظات ({{ r['items']|length }})</h2>
+{% if not r['items'] %}<p><span class="badge b-clean">سليم</span> مفيش ملاحظات في الفحوصات اللي اتشغّلت. ده معناه إن التصميم نضيف على القواعد دي بس، مش إنه خالي من أي غلط (شوف الفحوصات اللي «لم يُختبر» فوق).</p>{% endif %}
+{% for it in r['items'] %}
+<div class="finding" id="f{{ it.n }}">
+<div><div class="num n-{{ it.severity }}">{{ it.n }}</div></div>
+<div>
+<h3>{{ rules[it.check][1] }} <span class="badge b-{{ it.severity }}">{{ 'خطأ' if it.severity=='error' else 'تنبيه' }}</span>
+{% if it.page %}<span class="meta"> · صفحة {{ it.page }}</span>{% endif %}{% if it.loc %}<span class="meta"> · {{ it.loc }}</span>{% endif %}</h3>
+<div>{{ it.message_ar }}</div>
+<div class="en">{{ it.message_en }}</div>
+<div class="meta">الطريقة: {{ it.method }} · الثقة: {{ {'high':'عالية','medium':'متوسطة'}.get(it.confidence, it.confidence) }}</div>
+{% if it.crop %}<img class="crop" loading="lazy" src="{{ url_for('img', jid=r.meta.id, name=it.crop) }}" alt="">{% endif %}
+</div></div>
+{% endfor %}
+</div>
+
+{% if pages %}
+<div class="card"><h2>الصفحات المعلّمة</h2>
+{% for pg, fn in pages|dictsort %}
+<h3 style="margin:14px 0 6px">صفحة {{ pg }}</h3>
+<img class="pageimg" loading="lazy" src="{{ url_for('img', jid=r.meta.id, name=fn) }}" alt="صفحة {{ pg }} بعلامات الأخطاء">
+{% endfor %}
+</div>
+{% endif %}
+<p class="note">كل نتيجة معلّمة بطريقة الفحص ودرجة الثقة. اللي «ثقة متوسطة» راجعه بعينك. الفحص ده بيكمّل عين المدير الفني، مش بيحل مكانها.</p>
+{% endblock %}
