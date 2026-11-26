@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 # OCR (optional feature), libraries Pillow needs to shape Arabic text, and the fonts used by the page and the PDF report
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    tesseract-ocr libraqm0 libfribidi0 libharfbuzz0b fonts-dejavu-core fonts-noto-core \
+    tesseract-ocr libraqm0 libfribidi0 libharfbuzz0b fonts-dejavu-core fonts-noto-core libreoffice-impress \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd -m -u 1000 appuser
