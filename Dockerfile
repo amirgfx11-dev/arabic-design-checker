@@ -10,7 +10,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app.py engine.py report.py fixes.py tone.py ./
+COPY app.py engine.py report.py fixes.py tone.py autofix.py ./
 COPY templates ./templates
 RUN mkdir -p fonts static/fonts \
  && cp /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf fonts/ \
