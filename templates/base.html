@@ -171,6 +171,19 @@ html,body{overflow-x:hidden}
 footer{border-top:1px solid var(--line);margin-top:80px;padding:26px 0;color:var(--mut);font-size:13px}
 .afx .rd,.afx .rd summary{border:0;padding:0;background:none}
 @media(max-width:760px){.afx .sent{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.afx .rd{flex-basis:100%}.afx .row:has(.rd[open]) .sent{display:block;-webkit-line-clamp:unset}}
+.score{display:flex;gap:24px;align-items:center;border:1px solid var(--line);background:#0d0d0d;padding:22px 24px;margin:26px 0 0}
+.score .ring{width:112px;height:112px;border-radius:50%;flex:none;background:conic-gradient(var(--c) calc(var(--p)*1%),#222 0);display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative}
+.score .ring::before{content:"";position:absolute;inset:9px;background:#0d0d0d;border-radius:50%}
+.score .ring b,.score .ring span{position:relative;line-height:1.1}.score .ring b{font-size:40px;font-family:"Wide",Arial,sans-serif;color:var(--c)}.score .ring span{font-size:12px;color:var(--grey)}
+.score .sb{flex:1;min-width:0}.score .band{font-size:26px;font-weight:700}
+.score .how{margin-top:10px;padding-top:8px;border-top:0}.score table{width:100%;font-size:14px}
+.prog{height:6px;background:#222;border-radius:3px;overflow:hidden;margin:10px 0}.prog i{display:block;height:100%;background:var(--green);transition:width .4s}
+.sortbar{margin:22px 0 10px;font-size:14px;color:var(--grey)}.sortbar a{color:var(--grey);margin-inline-start:12px;text-decoration:none;border-bottom:1px solid transparent}.sortbar a.on{color:var(--green);border-color:var(--green)}
+.bfiles{border:1px solid var(--line)}.bf{display:flex;gap:16px;align-items:center;padding:12px 16px;border-top:1px solid var(--line);background:#0d0d0d}.bf:first-child{border-top:0}
+.bf .bn{flex:1;min-width:0}.bf .bn b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bf .bs{text-align:center;flex:none;min-width:84px}.bf .bs b{display:block;font-size:30px;line-height:1;font-family:"Wide",Arial,sans-serif;color:var(--c)}.bf .bs span{font-size:12px;color:var(--grey)}
+.btn.sm2{padding:8px 16px;font-size:14px;flex:none}
+@media(max-width:760px){.score{flex-direction:column;align-items:flex-start}.bf{flex-wrap:wrap}.bf .bn{flex-basis:100%}}
 </style>
 </head>
 <body>
