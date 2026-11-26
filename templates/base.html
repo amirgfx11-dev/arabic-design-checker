@@ -127,6 +127,47 @@ table{width:100%;border-collapse:collapse}td{padding:16px 10px;border-top:1px so
 .afx ins{color:#000;background:var(--green);text-decoration:none;padding:0 3px;font-weight:700}
 .afx .sm{font-size:12.5px;color:var(--mut)}
 .afx .pill{font-size:12px;border:1px solid #333;border-radius:99px;padding:0 10px;color:var(--grey)}
+
+@media(max-width:640px){
+ body{font-size:15px;line-height:1.75}
+ .wrap{padding:0 16px}
+ header .wrap{height:auto;min-height:56px;padding-top:8px;padding-bottom:8px;gap:10px}
+ header .tag{display:none}
+ .brand{gap:10px;min-width:0}
+ .logo{height:14px}.sep{height:16px}
+ .brand b{font-size:15px;white-space:nowrap}
+ .nav{top:57px;margin:0 -16px;padding:8px 16px;flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch}
+ .nav a{white-space:nowrap;flex:none}
+ .hero{padding:32px 0 14px}
+ h1{font-size:clamp(30px,9vw,40px);line-height:1.25}
+ h2{font-size:21px}
+ .lead{font-size:16px}
+ .eyebrow{font-size:11px;margin-bottom:12px}
+ .chips{gap:8px;margin-top:18px}.chip{font-size:13px;padding:4px 11px}
+ .card{padding:18px 16px;margin:14px 0}
+ .sec{margin-top:36px}
+ .drop{padding:28px 14px}.drop b{font-size:17px}
+ input[type=text],input[type=number],select,textarea{font-size:16px;padding:12px}
+ .btn{width:100%;justify-content:center;padding:14px 18px}
+ .actions .btn,.afx .bar2 .btn{width:100%}
+ .afx .bar2 .btn[type=button]{width:calc(50% - 5px)}
+ .stats b{font-size:32px}.stats>div{padding:14px}.stats span{font-size:13px}
+ .grp>summary{padding:13px 14px;font-size:16px;gap:10px}
+ .fnd{padding:14px;gap:12px}
+ .fnd .crop{max-height:200px}
+ .afx{padding:16px 14px}.afx h2{font-size:19px}
+ .afx .row{padding:10px 12px}.afx .ctx{font-size:14px}
+ .afx .kind>summary{flex-wrap:wrap;padding:11px 12px}
+ .fold>summary{padding:12px 14px;font-size:15px}.fold>div{padding:0 14px 16px}
+ table,tbody,tr,td{display:block;width:100%!important}
+ td{border-top:0;padding:4px 0}tr{border-top:1px solid var(--line);padding:10px 0}
+ .tone big{font-size:28px}
+ .legend{flex-wrap:wrap;gap:8px 16px}
+ .top{width:38px;height:38px;bottom:12px;left:12px}
+ footer{margin-top:40px}
+}
+@media(max-width:380px){.brand b{font-size:13px}.logo{height:12px}}
+html,body{overflow-x:hidden}
 footer{border-top:1px solid var(--line);margin-top:80px;padding:26px 0;color:var(--mut);font-size:13px}
 </style>
 </head>
