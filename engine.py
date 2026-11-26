@@ -322,18 +322,29 @@ def parse_guidelines_pdf(path):
     doc = fitz.open(path)
     text = "\n".join(p.get_text() for p in doc)
     colors = list(dict.fromkeys(["#" + m.group(1).lower() for m in re.finditer(r"#([0-9a-fA-F]{6})\b", text)]))
+    embedded = Counter()
+    for p in doc:
+        for f in p.get_fonts():
+            embedded[re.split(r"[-,]", re.sub(r"^[A-Z]{6}\+", "", f[3]))[0]] += 1
+    emb_l = {n.lower().replace(" ", "") for n in embedded}
+    # Words that follow "typography" in guideline headings but are not font names (this caused every font to read "Layout").
+    stop = {"family", "size", "weight", "style", "layout", "grid", "colors", "colours", "color", "colour", "logo", "usage", "scale",
+            "hierarchy", "spacing", "guidelines", "rules", "system", "overview", "headings", "heading", "body", "text", "print",
+            "digital", "specimen", "palette", "imagery", "icons", "iconography", "tone", "voice", "principles", "intro", "introduction",
+            "contents", "primary", "secondary", "regular", "bold", "light", "medium", "page", "section"}
     fonts = []
-    for m in re.finditer(r"(?:font|typeface|typography|الخط|خط|الخطوط)\s*[:：\-–]?\s*([A-Za-z][A-Za-z0-9 ]{2,30})", text, re.I):
+    for m in re.finditer(r"(?:font|typeface|typography|الخط|خط|الخطوط)[ \t]*[:：\-–][ \t]*([A-Za-z][A-Za-z0-9 ]{2,30})", text, re.I):
         f = m.group(1).strip()
-        if f.lower() not in ("family", "size", "weight", "style"):
+        words = f.split()
+        if not words or words[0].lower() in stop or f.lower() in stop:
+            continue
+        # keep only names that are plausible: appear embedded in the guide, or are short proper names
+        if f.lower().replace(" ", "") in emb_l or any(w.lower().replace(" ", "") in emb_l for w in [f]) or len(words) <= 3:
             fonts.append(f)
+    fonts = list(dict.fromkeys(fonts))
     if not fonts:
-        fc = Counter()
-        for p in doc:
-            for f in p.get_fonts():
-                fc[re.sub(r"^[A-Z]{6}\+", "", f[3])] += 1
-        fonts = [re.split(r"[-,]", n)[0] for n, _ in fc.most_common(3)]
-        fonts = list(dict.fromkeys(fonts))
+        generic = {"arial", "helvetica", "timesnewroman", "symbol", "zapfdingbats", "courier", "calibri"}
+        fonts = [n for n, _ in embedded.most_common(6) if n.lower().replace(" ", "") not in generic][:3] or [n for n, _ in embedded.most_common(3)]
         note = "الخطوط مستنتجة من الخطوط المستخدمة داخل ملف الدليل نفسه"
     else:
         note = "الخطوط والألوان مقروءة من نص الدليل"
