@@ -7,6 +7,15 @@
 <h1 style="font-size:clamp(34px,5vw,56px)">التقرير<em>.</em></h1>
 <p class="lead" dir="auto">{{ r.meta.filename }} · {{ r.meta.pages }} صفحة · تم الفحص في {{ r.meta.seconds }} ثانية · {{ r.meta.when }}</p>
 </section>
+{% set sc = r.meta.get('score') %}
+{% if sc %}<div class="score" style="--p:{{ sc.value }};--c:{{ sc.color }}">
+<div class="ring"><b>{{ sc.value }}</b><span>من 100</span></div>
+<div class="sb"><div class="band" style="color:{{ sc.color }}">{{ sc.band_ar }}</div>
+<p class="note" style="margin:4px 0 0">درجة تلخّص نتائج فحوصات الأداة على هذا الملف. بالكود وحده، بلا نموذج لغوي.</p>
+<details class="how"><summary>كيف حُسبت الدرجة؟</summary>
+<p class="note">نبدأ من 100. كل خطأ يخصم {{ sc.w_err|int }} نقاط وكل تنبيه {{ sc.w_warn }}، والملاحظة منخفضة الثقة تُحتسب بنصف وزنها. لا يخصم فحص واحد أكثر من {{ sc.cap|int }} نقطة قبل التقسيم، ويُقسم الخصم الكلي على الجذر التربيعي لعدد الصفحات ({{ sc.pages }}) كي لا يُظلم الملف الطويل. 90 فأكثر ممتاز، 75 إلى 89 جيد، 50 إلى 74 يحتاج مراجعة، وأقل من 50 يحتاج عملًا.</p>
+{% if sc.parts %}<table>{% for p in sc.parts %}<tr><td>{{ p.name }}</td><td>{{ p.errors }} خطأ · {{ p.warns }} تنبيه</td><td>−{{ p.penalty }}{% if p.capped %} (بلغ الحد){% endif %}</td></tr>{% endfor %}</table>{% else %}<p class="note">لا خصم: لم تُرصد أخطاء ولا تنبيهات.</p>{% endif %}
+<p class="note">تنبيه: الدرجة الكاملة لا تعني أن التصميم بلا أخطاء، فبعض الفحوصات «لم تُختبر» (انظر الفحوصات أدناه).</p></details></div></div>{% endif %}
 <div class="stats">
 <div><b style="color:var(--err)">{{ ne }}</b><span>خطأ</span></div>
 <div><b style="color:var(--warn)">{{ nw }}</b><span>تنبيه</span></div>
