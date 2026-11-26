@@ -194,7 +194,13 @@ def result(jid):
         by_page.setdefault(it["page"], []).append(it)
     ne = sum(1 for i in r["items"] if i["severity"] == "error")
     nw = sum(1 for i in r["items"] if i["severity"] == "warn")
-    return render_template("report.html", r=r, pages=pages, by_page=by_page, ne=ne, nw=nw, rules=engine.RULES)
+    gd = {}
+    for it in r["items"]:
+        g = gd.setdefault(it["check"], dict(key=it["check"], name=engine.RULES[it["check"]][1], its=[], errors=0))
+        g["its"].append(it)
+        g["errors"] += it["severity"] == "error"
+    groups = sorted(gd.values(), key=lambda g: (-g["errors"], -len(g["its"])))
+    return render_template("report.html", r=r, pages=pages, by_page=by_page, ne=ne, nw=nw, rules=engine.RULES, groups=groups)
 
 
 @app.route("/r/<jid>/img/<name>")
