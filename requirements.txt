@@ -3,3 +3,4 @@ gunicorn==27.0.1
 pymupdf==1.28.2
 python-pptx==1.0.2
 pillow==12.3.0
+numpy
