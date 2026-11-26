@@ -29,6 +29,7 @@ def mark_pages(doc, items, outdir, dpi=110):
         if doc is None or pg is None or pg > len(doc):
             continue
         im = engine.render_page(doc, pg - 1, dpi)
+        clean = im.copy()
         d = ImageDraw.Draw(im, "RGBA")
         for it in its:
             boxes = []
@@ -48,9 +49,20 @@ def mark_pages(doc, items, outdir, dpi=110):
         pages[pg] = f"p{pg}.png"
         for it in its:
             if it.get("bbox"):
-                x0, y0, x1, y1 = [v * scale for v in it["bbox"]]
-                mx, my = max(70, (x1 - x0) * 0.5), max(50, (y1 - y0) * 1.0)
-                crop = im.crop((int(max(0, x0 - mx)), int(max(0, y0 - my)), int(min(im.width, x1 + mx)), int(min(im.height, y1 + my))))
+                own = [it["bbox"]] + [bb2 for pg2, bb2 in it.get("extra", []) if pg2 == pg]
+                one = clean.copy()
+                d1 = ImageDraw.Draw(one, "RGBA")
+                col = SEV_COL.get(it["severity"], RED)
+                for bb in own:
+                    a0, b0, a1, b1 = [v * scale for v in bb]
+                    d1.rectangle((a0 - 6, b0 - 6, a1 + 6, b1 + 6), outline=col + (255,), width=4, fill=col + (28,))
+                a0, b0 = it["bbox"][0] * scale, it["bbox"][1] * scale
+                d1.ellipse((a0 - 36, b0 - 36, a0 + 2, b0 + 2), fill=col + (255,))
+                d1.text((a0 - 17, b0 - 17), str(it["n"]), font=font(22, True, False), fill=(255, 255, 255), anchor="mm")
+                ux0 = min(bb[0] for bb in own) * scale; uy0 = min(bb[1] for bb in own) * scale
+                ux1 = max(bb[2] for bb in own) * scale; uy1 = max(bb[3] for bb in own) * scale
+                mx, my = max(130, (ux1 - ux0) * 0.15), max(90, (uy1 - uy0) * 0.5)
+                crop = one.crop((int(max(0, ux0 - mx)), int(max(0, uy0 - my)), int(min(one.width, ux1 + mx)), int(min(one.height, uy1 + my))))
                 if crop.width > 900:
                     crop = crop.resize((900, int(crop.height * 900 / crop.width)))
                 cn = f"c{it['n']}.png"
