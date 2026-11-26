@@ -41,4 +41,17 @@ for (const n of [1,2]) { const d=document.getElementById('drop'+n), i=d.querySel
  ['dragover','dragenter'].forEach(e=>d.addEventListener(e,x=>{x.preventDefault();d.classList.add('on')}));
  d.addEventListener('drop',x=>{x.preventDefault();if(x.dataTransfer.files.length){i.files=x.dataTransfer.files;i.dispatchEvent(new Event('change'))}}); }
 </script>
+<form class="card" method="post" action="/batch" enctype="multipart/form-data" style="margin-top:24px" onsubmit="var b=document.getElementById('gob');b.disabled=true;b.textContent='جارٍ الرفع...'">
+<h2><span class="num2">+</span>فحص دفعة ملفات</h2>
+<p class="note">ارفع حتى {{ 10 }} ملفات معًا (PDF وPPTX وPNG وJPG) واحصل على لوحة واحدة: درجة من 100 لكل ملف، والأضعف أولًا، وأكثر المشكلات تكرارًا، وملخص CSV، وملف ZIP بنسخ PPTX المصحَّحة. يُطبَّق الفحص بالقواعد العامة بلا دليل هوية.</p>
+<label class="drop" id="dropb"><b>اسحب الملفات هنا أو اضغط للاختيار</b><span>الحد الأقصى 40 ميجابايت للدفعة كلها</span><span class="fn" id="fnb"></span>
+<input type="file" name="designs" multiple accept=".pdf,.pptx,.png,.jpg,.jpeg,.webp"></label>
+<p style="margin-top:18px"><button id="gob" class="btn" type="submit">افحص الدفعة <span>←</span></button></p>
+</form>
+<script>
+(function(){const d=document.getElementById('dropb'),i=d.querySelector('input'),f=document.getElementById('fnb');
+i.addEventListener('change',()=>{f.textContent=i.files.length?i.files.length+' ملفات':'';d.classList.toggle('on',!!i.files.length)});
+['dragover','dragenter'].forEach(e=>d.addEventListener(e,x=>{x.preventDefault();d.classList.add('on')}));
+d.addEventListener('drop',x=>{x.preventDefault();if(x.dataTransfer.files.length){i.files=x.dataTransfer.files;i.dispatchEvent(new Event('change'))}})})();
+</script>
 {% endblock %}
