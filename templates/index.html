@@ -1,31 +1,43 @@
 {% extends "base.html" %}
 {% block body %}
-<h1>افحص تصميمك العربي</h1>
-<p class="lead">ارفع التصميم وهنرجعلك تقرير معلّم بالأخطاء: الإملاء، تشكيل الحروف، ترتيب النص المختلط، الأرقام، عكس التصميم، وحواف الصفحة. الفحص كود ثابت بدون ذكاء اصطناعي، فنفس الملف بيطلع نفس النتيجة كل مرة.</p>
+<section class="hero">
+<div class="eyebrow">arabic design checker_</div>
+<h1>افحص تصميمك العربي<em>.</em></h1>
+<p class="lead">ارفع التصميم لتحصل على تقرير مُعلَّم بالأخطاء، مع صورة للموضع الدقيق لكل ملاحظة والتصحيح المقترح لها: الإملاء، وتشكيل الحروف، واتجاه النص المختلط، والأرقام، وحواف الصفحة، واتساق التصميم، ونبرة الكتابة.</p>
+<div class="chips">
+<span class="chip"><b>01</b>الإملاء</span><span class="chip"><b>02</b>تشكيل الحروف</span><span class="chip"><b>03</b>اتجاه النص</span><span class="chip"><b>04</b>الأرقام</span><span class="chip"><b>05</b>المحاذاة</span><span class="chip"><b>06</b>دليل الهوية</span><span class="chip"><b>07</b>حواف الصفحة</span><span class="chip"><b>08</b>اتساق التصميم</span><span class="chip"><b>09</b>نبرة الكتابة</span>
+</div>
+</section>
 {% if error %}<div class="err">{{ error }}</div>{% endif %}
-<form class="card" method="post" action="/check" enctype="multipart/form-data" onsubmit="document.getElementById('go').disabled=true;document.getElementById('go').textContent='جاري الفحص...'">
-<h2>١. التصميم</h2>
-<label>ملف التصميم (PDF أفضل نتيجة، أو PPTX، أو صورة PNG/JPG)</label>
-<input type="file" name="design" accept=".pdf,.pptx,.png,.jpg,.jpeg,.webp">
-<p class="note">PDF: بيتفحص بالكامل (نص + بكسلات) · PPTX: النص والإعدادات · الصور المسطحة: فحص البكسلات فقط، وقراءة النص من الصورة محتاجة نموذج رؤية (مفتاح API) في نسخة جاية. لحد وقتها الصق النص تحت. أقصى حجم 40 ميجا و{{ max_pages }} صفحة.</p>
+<form class="card" method="post" action="/check" enctype="multipart/form-data" onsubmit="var b=document.getElementById('go');b.disabled=true;b.textContent='جارٍ الفحص...'">
+<h2><span class="num2">01</span>التصميم</h2>
+<label class="drop" id="drop1"><b>اسحب الملف هنا أو اضغط للاختيار</b><span>PDF يعطي أفضل نتيجة، ويُدعم أيضًا PPTX وصور PNG وJPG (الحد الأقصى 40 ميجابايت و{{ max_pages }} صفحة)</span><span class="fn" id="fn1"></span>
+<input type="file" name="design" accept=".pdf,.pptx,.png,.jpg,.jpeg,.webp"></label>
+<p class="note">ملفات PDF تُفحص بالكامل (النص والبكسلات). ملفات PPTX تُفحص من حيث النص والإعدادات مع صورة حقيقية للشريحة. الصور المسطحة تُفحص بالبكسلات فقط، وقراءة النص من الصورة تحتاج مفتاح واجهة برمجة لنموذج رؤية في نسخة لاحقة، وإلى حينها يمكنك لصق النص في الخانة التالية.</p>
 <label>أو الصق النص هنا (اختياري)</label>
-<textarea name="pasted" placeholder="الصق النص العربي اللي في التصميم..."></textarea>
+<textarea name="pasted" placeholder="الصق هنا النص العربي الموجود في التصميم"></textarea>
 
-<h2 style="margin-top:22px">٢. دليل الهوية (اختياري)</h2>
-<label>ملف دليل الهوية PDF (هنقرأ منه الألوان والخطوط، وهتشوف اللي اتقرأ في التقرير)</label>
-<input type="file" name="guidelines" accept=".pdf">
-<details><summary>أو اكتب القواعد بنفسك</summary>
+<h2 style="margin-top:36px"><span class="num2">02</span>دليل الهوية (اختياري)</h2>
+<label class="drop" id="drop2" style="padding:24px"><b>ارفع ملف دليل الهوية بصيغة PDF</b><span>سنقرأ منه الألوان والخطوط، وسترى ما قرأناه في التقرير</span><span class="fn" id="fn2"></span>
+<input type="file" name="guidelines" accept=".pdf"></label>
+<details><summary>أو أدخل القواعد يدويًا</summary>
 <div class="grid2">
-<div><label>الخطوط المسموحة (مفصولة بفاصلة)</label><input type="text" name="fonts" placeholder="PingAR LT, Cairo"></div>
-<div><label>ألوان البراند (HEX)</label><input type="text" name="colors" placeholder="#0f5c6e, #13343c, #ffffff"></div>
-<div><label>نظام الأرقام</label><select name="numerals"><option value="any">أي نظام (يتحدد من المستند)</option><option value="indic">هندية ٠١٢٣</option><option value="west">غربية 0123</option></select></div>
-<div><label>أقل حجم خط (pt)</label><input type="number" step="0.5" name="min_size" placeholder="مثال: 10"></div>
+<div><label>الخطوط المسموحة (تفصل بينها فاصلة)</label><input type="text" name="fonts" placeholder="PingAR LT, Cairo"></div>
+<div><label>ألوان الهوية (HEX)</label><input type="text" name="colors" placeholder="#0f5c6e, #13343c, #ffffff"></div>
+<div><label>نظام الأرقام</label><select name="numerals"><option value="any">أي نظام (يُحدَّد من المستند)</option><option value="indic">هندية ٠١٢٣</option><option value="west">غربية 0123</option></select></div>
+<div><label>أصغر حجم خط (pt)</label><input type="number" step="0.5" name="min_size" placeholder="مثال: 10"></div>
 </div></details>
 
 <details><summary>خيارات متقدمة</summary>
-<label style="font-weight:400"><input type="checkbox" name="ocr" value="1" {% if not ocr %}disabled{% endif %}> اقرأ الأرقام اللي جوه لقطات الشاشة داخل الـ PDF (أبطأ، دقته متوسطة){% if not ocr %} (غير متاح على السيرفر ده){% endif %}</label>
+<label style="font-weight:400"><input type="checkbox" name="ocr" value="1" {% if not ocr %}disabled{% endif %}> اقرأ الأرقام داخل لقطات الشاشة المضمّنة في PDF (أبطأ، ودقته متوسطة){% if not ocr %} (غير متاح على هذا الخادم){% endif %}</label>
 </details>
-<p style="margin-top:20px"><button id="go" class="btn" type="submit">افحص</button></p>
-<p class="note">بنحذف الملف المرفوع فور انتهاء الفحص، والتقرير بيتمسح بعد ساعتين. لو الملف تبع عميل وفيه بيانات حساسة، اسأل نفسك قبل ما ترفعه على أي أداة.</p>
+<p style="margin-top:30px"><button id="go" class="btn" type="submit">ابدأ الفحص <span>←</span></button></p>
+<p class="note">يُحذف الملف المرفوع فور انتهاء الفحص، ويُحذف التقرير بعد ساعتين. إن كان الملف يخص عميلًا ويحوي بيانات حساسة، فتأكد من أنك مخوَّل برفعه إلى أي أداة.</p>
 </form>
+<script>
+for (const n of [1,2]) { const d=document.getElementById('drop'+n), i=d.querySelector('input'), f=document.getElementById('fn'+n);
+ i.addEventListener('change',()=>{f.textContent=i.files[0]?i.files[0].name:'';d.classList.toggle('on',!!i.files[0])});
+ ['dragover','dragenter'].forEach(e=>d.addEventListener(e,x=>{x.preventDefault();d.classList.add('on')}));
+ d.addEventListener('drop',x=>{x.preventDefault();if(x.dataTransfer.files.length){i.files=x.dataTransfer.files;i.dispatchEvent(new Event('change'))}}); }
+</script>
 {% endblock %}
