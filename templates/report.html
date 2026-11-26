@@ -23,7 +23,8 @@
 <section class="afx" id="autofix">
 <h2>التصحيح التلقائي <span class="pill">PPTX</span></h2>
 {% if corr.corrections %}
-<p class="note" style="margin:0">وجدت الأداة <b>{{ corr.corrections|length }}</b> تصحيحًا آمنًا قابلًا للتطبيق داخل الملف نفسه. كل تصحيح بكود ثابت (قوائم أنماط وجداول حروف وأرقام)، وليس بنموذج لغوي. اختر ما تريد تطبيقه ثم نزّل النسخة المصحَّحة. الملف الأصلي لا يتغير، والتنسيق (الخط والحجم واللون) محفوظ.</p>
+<p class="sum"><b>سنصحّح {{ corr.corrections|length }} {{ 'موضعًا' if corr.corrections|length > 10 else 'مواضع' }} في ملفك:</b> {% for k in ckinds %}{{ k.name }} ({{ k.its|length }}){{ '، ' if not loop.last }}{% endfor %}.</p>
+<p class="note" style="margin:0 0 4px">كل سطر أدناه جملة تصف ما سيتغيّر وأين. أزل العلامة عمّا لا تريده، ثم نزّل النسخة المصحَّحة. الملف الأصلي لا يتغيّر، والخط والحجم واللون تبقى كما هي.</p>
 <form method="post" id="afxform">
 <div class="bar2">
 <button class="btn" type="submit" formaction="{{ url_for('fixed_pptx', jid=r.meta.id) }}">تنزيل PPTX المصحَّح (<span id="cnt">0</span>)</button>
@@ -35,9 +36,14 @@
 <details class="kind" {% if k.on %}open{% endif %}>
 <summary><input type="checkbox" class="kall" data-k="{{ k.key }}" {% if k.on %}checked{% endif %}><span>{{ k.name }}</span><span class="pill">{{ k.its|length }}</span>{% if not k.on %}<span class="sm">غير محدد افتراضيًا: يغيّر الصياغة، راجعه بعينك</span>{% endif %}</summary>
 {% for c in k.its %}
-<label class="row"><input type="checkbox" name="c" value="{{ c.id }}" data-k="{{ k.key }}" {% if k.on %}checked{% endif %}>
-<span><span class="ctx">{{ c.ctx_before }}<del>{{ c.before if c.before.strip() else 'مسافة' }}</del> <ins>{{ (c.after if c.after.strip() else 'مسافة واحدة') if c.after else '(حذف)' }}</ins>{{ c.ctx_after }}</span>
-<span class="sm" style="display:block">شريحة {{ c.slide }} · {{ c.shape }} · {{ c.note_ar }} · الثقة: {{ {'high':'عالية','medium':'متوسطة','low':'منخفضة'}[c.confidence] }} · {{ c.method|method_ar }}</span></span></label>
+<div class="row"><input type="checkbox" name="c" id="c_{{ c.id }}" value="{{ c.id }}" data-k="{{ k.key }}" {% if k.on %}checked{% endif %}>
+<div class="rb"><label for="c_{{ c.id }}" class="sent">
+{% if c.kind == 'rtl' %}تفعيل اتجاه RTL لفقرة «{{ c.ctx_before|replace(' … ','…')|trim }}» في شريحة {{ c.slide }}
+{% elif c.kind == 'align' %}محاذاة فقرة «{{ c.ctx_before|replace(' … ','…')|trim }}» إلى اليمين في شريحة {{ c.slide }}
+{% else %}{{ {'spell':'تصحيح الإملاء','letters':'استبدال حرف فارسي','digits':'توحيد الأرقام','punct':'ضبط علامة الترقيم','tone':'تبديل كلمة'}.get(c.kind,'تصحيح') }} في شريحة {{ c.slide }}:
+<span class="ctx">{{ c.ctx_before }}<del>{{ c.before if c.before.strip() else 'مسافة' }}</del> <ins>{{ (c.after if c.after.strip() else 'مسافة واحدة') if c.after else '(حذف)' }}</ins>{{ c.ctx_after }}</span>
+{% endif %}</label>
+<details class="rd"><summary>تفاصيل</summary><div class="sm">{{ c.note_ar }}<br>العنصر: {{ c.shape }} · الثقة: {{ {'high':'عالية','medium':'متوسطة','low':'منخفضة'}[c.confidence] }} · {{ c.method|method_ar }}</div></details></div></div>
 {% endfor %}
 </details>
 {% endfor %}
@@ -84,8 +90,7 @@ f.addEventListener('submit',e=>{if(!boxes().some(b=>b.checked)){e.preventDefault
 {% if it.page %}<span class="meta">صفحة {{ it.page }}</span>{% endif %}{% if it.loc %}<span class="meta">{{ it.loc }}</span>{% endif %}</h4>
 <div class="why">{{ it.message_ar }}</div>
 {% if it.fix_ar %}<div class="fix"><b>التصحيح المقترح</b>{{ it.fix_ar }}</div>{% endif %}
-<div class="tags"><span class="tag2 {{ 'code' if it.method.startswith('code') else '' }}">{{ it.method|method_ar }}</span><span class="tag2">الثقة: {{ {'high':'عالية','medium':'متوسطة','low':'منخفضة، راجعها بعينك'}.get(it.confidence, it.confidence) }}</span></div>
-<details class="more"><summary>التفاصيل بالإنجليزية</summary><div class="en">{{ it.message_en }}{% if it.fix_en %}<br>Fix: {{ it.fix_en }}{% endif %}<br>{{ it.method }}</div></details>
+<details class="more"><summary>تفاصيل</summary><div class="tags"><span class="tag2 {{ 'code' if it.method.startswith('code') else '' }}">{{ it.method|method_ar }}</span><span class="tag2">الثقة: {{ {'high':'عالية','medium':'متوسطة','low':'منخفضة، راجعها بعينك'}.get(it.confidence, it.confidence) }}</span></div><div class="en">{{ it.message_en }}{% if it.fix_en %}<br>Fix: {{ it.fix_en }}{% endif %}<br>{{ it.method }}</div></details>
 {% if r.meta.kind == "pptx" and it.crop and not r.meta.pptx_real %}<div class="note">مخطط تقريبي للشريحة، وليس صورة حقيقية.</div>{% endif %}
 </div>
 {% if it.crop %}<div><img class="crop" loading="lazy" onclick="this.classList.toggle('big')" src="{{ url_for('img', jid=r.meta.id, name=it.crop) }}" alt="مكان الملاحظة"><div class="meta" style="margin-top:4px">اضغط على الصورة لتكبيرها</div></div>{% endif %}
