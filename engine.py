@@ -37,6 +37,7 @@ RULES = {
     "R5": ("Spelling and typography", "الإملاء والتنسيق الكتابي"),
     "R6": ("Brand guidelines", "مطابقة دليل الهوية"),
     "R7": ("Page edges / layout", "حواف الصفحة والتخطيط"),
+    "R8": ("Visual consistency (sizes, weights, alignment, spacing)", "اتساق التصميم (الأحجام والأوزان والمحاذاة والمسافات)"),
 }
 
 
@@ -70,6 +71,7 @@ def digit_kind(tok):
 class Findings:
     def __init__(self):
         self.items = []
+        self.pptx = {}
         self.stats = defaultdict(lambda: {"checked": 0, "flagged": 0, "note": ""})
 
     def checked(self, key, n=1):
@@ -703,6 +705,180 @@ def pixel_checks_pdf(doc, n_pages, F, brand, ocr=True):
     return
 
 
+# ----------------------------------------------------------------- R8 visual consistency (PDF text layer geometry)
+def pptx_wireframe_doc(pptx_layout):
+    """PPTX has no renderer here, so the report shows a schematic: gray boxes where text frames sit."""
+    d = fitz.open()
+    for si in sorted(pptx_layout):
+        W, H, boxes = pptx_layout[si]
+        pg = d.new_page(width=max(W, 100), height=max(H, 100))
+        pg.draw_rect(pg.rect, color=(0.8, 0.8, 0.8), fill=(0.98, 0.98, 0.98))
+        for bb in boxes:
+            pg.draw_rect(fitz.Rect(*bb), color=(0.55, 0.6, 0.65), fill=(0.9, 0.93, 0.95), width=0.8)
+        pg.insert_text((8, 14), "Schematic of slide %d (text frames only, not a render)" % si, fontsize=9, color=(0.4, 0.4, 0.4))
+    return d
+
+
+def _is_bold(sp):
+    return bool(sp["flags"] & 16) or bool(re.search(r"bold|black|heavy|semibold|demi", sp["font"], re.I))
+
+
+def _page_blocks(page):
+    """Paragraph-like blocks: dominant size, family, weight, geometry. Skips tiny/mixed blocks."""
+    out = []
+    d = page.get_text("dict")
+    for b in d["blocks"]:
+        if b["type"] != 0:
+            continue
+        sizes, fams, bolds, chars = Counter(), Counter(), Counter(), 0
+        for ln in b["lines"]:
+            for sp in ln["spans"]:
+                t = sp["text"].strip()
+                if not t:
+                    continue
+                n = len(t)
+                chars += n
+                sizes[round(sp["size"] * 2) / 2.0] += n
+                fams[font_family(sp["font"])] += n
+                bolds[_is_bold(sp)] += n
+        if not chars or not sizes:
+            continue
+        size, sn = sizes.most_common(1)[0]
+        if sn < 0.8 * chars:      # mixed sizes in one block: a heading with inline text, skip
+            continue
+        bb = b["bbox"]
+        out.append(dict(bbox=list(bb), size=size, fam=fams.most_common(1)[0][0], bold=bolds.most_common(1)[0][0],
+                        chars=chars, lines=len(b["lines"]), w=bb[2] - bb[0], h=bb[3] - bb[1]))
+    return out
+
+
+def _hover(a, b):
+    ov = min(a[2], b[2]) - max(a[0], b[0])
+    return ov / max(1.0, min(a[2] - a[0], b[2] - b[0]))
+
+
+def _union(*bbs):
+    return [min(b[0] for b in bbs), min(b[1] for b in bbs), max(b[2] for b in bbs), max(b[3] for b in bbs)]
+
+
+def _stacks(blocks):
+    """Chains of vertically stacked blocks of the same style (lists, card titles, repeated labels)."""
+    bl = sorted(blocks, key=lambda b: b["bbox"][1])
+    used, chains = set(), []
+    for i, a in enumerate(bl):
+        if i in used:
+            continue
+        chain, cur = [a], a
+        used.add(i)
+        while True:
+            nxt = None
+            for j, c in enumerate(bl):
+                if j in used or c["bbox"][1] < cur["bbox"][3] - 1:
+                    continue
+                gap = c["bbox"][1] - cur["bbox"][3]
+                if gap > 3 * cur["size"] + 24:
+                    break
+                if abs(c["size"] - cur["size"]) <= 0.3 and c["fam"] == cur["fam"] and _hover(cur["bbox"], c["bbox"]) > 0.5:
+                    nxt = (j, c)
+                    break
+            if not nxt:
+                break
+            used.add(nxt[0])
+            chain.append(nxt[1])
+            cur = nxt[1]
+        if len(chain) >= 3:
+            chains.append(chain)
+    return chains
+
+
+def consistency_pdf(doc, n_pages, F):
+    key = "R8"
+    pages = []
+    for pi in range(n_pages):
+        try:
+            pages.append(_page_blocks(doc[pi]))
+        except Exception:
+            pages.append([])
+    allb = [b for bl in pages for b in bl]
+    F.checked(key, len(allb))
+    # ---- (a) font-size outlier among body paragraphs
+    body = [b for b in allb if b["chars"] >= 40 and (b["lines"] >= 2 or b["chars"] >= 60)]
+    wsize = Counter()
+    for b in body:
+        wsize[b["size"]] += b["chars"]
+    if wsize:
+        s0, _ = wsize.most_common(1)[0]
+        tot = sum(wsize.values())
+        for pi, bl in enumerate(pages):
+            bb_ = [b for b in bl if b in body]
+            for b in bb_:
+                diff = b["size"] - s0
+                if abs(diff) < max(0.8, 0.07 * s0) or abs(diff) > 0.3 * s0:
+                    continue
+                if sum(1 for q in body if q["size"] == b["size"]) > max(2, 0.1 * len(body)):
+                    continue        # the size is used by many paragraphs: it is a real style, not a slip
+                same_style = [n for n in bb_ if n is not b and abs(n["size"] - s0) <= 0.3 and n["fam"] == b["fam"] and n["bold"] == b["bold"]]
+                near = [n for n in same_style if _hover(b["bbox"], n["bbox"]) > 0.5 and
+                        (0 <= n["bbox"][1] - b["bbox"][3] <= 40 or 0 <= b["bbox"][1] - n["bbox"][3] <= 40)]
+                if not near:
+                    continue
+                n = near[0]
+                rel = "أصغر" if diff < 0 else "أكبر"
+                rel_en = "smaller" if diff < 0 else "larger"
+                after = n["bbox"][1] > b["bbox"][1]
+                F.add(key, "R8", pi + 1, b["bbox"],
+                      f"فقرة حجم خطها {b['size']:g}pt {rel} من الفقرة {'اللي بعدها' if after else 'اللي قبلها'} ({n['size']:g}pt) بنفس الخط والوزن، ومفيش سبب واضح (مش عنوان ولا تعليق).",
+                      f"Paragraph set at {b['size']:g}pt is {rel_en} than the neighbouring paragraph ({n['size']:g}pt) in the same font and weight, and {b['size']:g}pt is rare in this document (a one-off, not a style).",
+                      severity="warn", confidence="medium", method="code: font sizes from the PDF text layer", snippet=f"{b['size']:g}pt vs {n['size']:g}pt",
+                      )
+                F.items[-1]["extra"] = [[pi + 1, [round(v, 1) for v in n["bbox"]]]]
+    # ---- (b)(c)(d) stacks of similar elements
+    for pi, bl in enumerate(pages):
+        for ch in _stacks(bl):
+            n = len(ch)
+            # (b) weight
+            if n >= 4:
+                bolds = Counter(b["bold"] for b in ch)
+                if len(bolds) == 2 and min(bolds.values()) == 1:
+                    odd = [b for b in ch if bolds[b["bold"]] == 1][0]
+                    # a lone bold first item is a header, not a slip: skip the first element
+                    if odd is not ch[0]:
+                        F.add(key, "R8", pi + 1, odd["bbox"],
+                              f"عنصر وسط {n} عناصر متشابهة (نفس الخط والحجم) وزنه مختلف: {'عريض' if odd['bold'] else 'عادي'} بينما الباقي {'عادي' if odd['bold'] else 'عريض'}.",
+                              f"One of {n} otherwise identical stacked elements (same font and size) has a different weight: {'bold' if odd['bold'] else 'regular'} while the rest are {'regular' if odd['bold'] else 'bold'}.",
+                              severity="warn", confidence="low", method="code: font names and sizes from the PDF text layer", snippet="weight")
+            # (c) alignment edge
+            if n >= 4:
+                for edge, idx in (("right", 2), ("left", 0)):
+                    vals = [b["bbox"][idx] for b in ch]
+                    med = sorted(vals)[len(vals) // 2]
+                    ok = [v for v in vals if abs(v - med) <= 2.0]
+                    if len(ok) == n - 1 or (n >= 6 and len(ok) == n - 1):
+                        odd = [b for b in ch if abs(b["bbox"][idx] - med) > 2.0][0]
+                        dv = abs(odd["bbox"][idx] - med)
+                        if 6 <= dv <= 60 and all(b["lines"] == 1 for b in ch):
+                            F.add(key, "R8", pi + 1, odd["bbox"],
+                                  f"عنصر وسط {n} عناصر متشابهة حافته {'اليمنى' if edge == 'right' else 'اليسرى'} مش على نفس الخط مع الباقي (فرق حوالي {dv:.0f}pt).",
+                                  f"One of {n} similar stacked elements is off the shared {edge} edge by about {dv:.0f}pt.",
+                                  severity="warn", confidence="low", method="code: text box positions from the PDF", snippet=f"{edge} edge {dv:.0f}pt")
+                            break
+            # (d) spacing between repeated elements
+            if n >= 4:
+                gaps = [ch[i + 1]["bbox"][1] - ch[i]["bbox"][3] for i in range(n - 1)]
+                for gi, g in enumerate(gaps):
+                    others = gaps[:gi] + gaps[gi + 1:]
+                    m = sorted(others)[len(others) // 2]
+                    if m >= 3 and all(abs(o - m) <= max(1.5, 0.2 * m) for o in others) and abs(g - m) >= max(6.0, 0.5 * m):
+                        a, b = ch[gi], ch[gi + 1]
+                        F.add(key, "R8", pi + 1, _union(a["bbox"], b["bbox"]),
+                              f"المسافة بين عنصرين متكررين ({g:.0f}pt) مختلفة عن باقي المسافات في نفس المجموعة (حوالي {m:.0f}pt).",
+                              f"The gap between two repeated elements ({g:.0f}pt) differs from the other gaps in the same group (about {m:.0f}pt).",
+                              severity="warn", confidence="medium" if len(others) >= 3 else "low",
+                              method="code: text box positions from the PDF", snippet=f"gap {g:.0f} vs {m:.0f}")
+                        break
+    F.note(key, "Uses font sizes, weights and box positions from the PDF text layer. It cannot see images, shapes or intent, so a deliberate emphasis can look like an error. Medium means the pattern is clear in the geometry, low means check by eye.")
+
+
 # ----------------------------------------------------------------- PPTX
 def analyze_pptx(path, F, brand):
     from pptx import Presentation
@@ -711,7 +887,9 @@ def analyze_pptx(path, F, brand):
     tokens = []
     font_use = defaultdict(list)
     n_par = 0
+    SW, SH = prs.slide_width / 12700.0, prs.slide_height / 12700.0
     for si, slide in enumerate(prs.slides, 1):
+        F.pptx[si] = (SW, SH, [])
         def walk(shapes):
             for sh in shapes:
                 if sh.shape_type == 6:  # group
@@ -719,6 +897,12 @@ def analyze_pptx(path, F, brand):
                 else:
                     yield sh
         for sh in walk(slide.shapes):
+            try:
+                sbb = [sh.left / 12700.0, sh.top / 12700.0, (sh.left + sh.width) / 12700.0, (sh.top + sh.height) / 12700.0]
+                if sh.has_text_frame and sh.text_frame.text.strip():
+                    F.pptx[si][2].append(sbb)
+            except Exception:
+                sbb = None
             frames = []
             if sh.has_text_frame:
                 frames.append(sh.text_frame)
@@ -741,12 +925,12 @@ def analyze_pptx(path, F, brand):
                     if ar_n > la_n and ar_n >= 3:
                         F.checked("R2")
                         if rtl not in ("1", "true"):
-                            F.add("R2", "R2", si, None, f"فقرة عربية اتجاهها شمال-يمين (rtl غير مفعّل): «{text[:40]}». النتيجة: علامات الترقيم والأرقام والكلمات اللاتينية بتتحرك لمكان غلط.",
+                            F.add("R2", "R2", si, sbb, f"فقرة عربية اتجاهها شمال-يمين (rtl غير مفعّل): «{text[:40]}». النتيجة: علامات الترقيم والأرقام والكلمات اللاتينية بتتحرك لمكان غلط.",
                                   f"Arabic paragraph is left-to-right (rtl not set): \"{text[:40]}\". Punctuation, numbers and Latin words will land on the wrong side.",
                                   severity="error", confidence="high", method="code: paragraph rtl attribute", snippet=text[:40], loc=loc)
                         F.checked("R4")
                         if algn == "l" and rtl in ("1", "true"):
-                            F.add("R4", "R4", si, None, f"فقرة عربية RTL لكن محاذاتها لليسار: «{text[:40]}».",
+                            F.add("R4", "R4", si, sbb, f"فقرة عربية RTL لكن محاذاتها لليسار: «{text[:40]}».",
                                   f"RTL Arabic paragraph is aligned left: \"{text[:40]}\".", severity="warn", confidence="medium",
                                   method="code: paragraph alignment attribute", snippet=text[:40], loc=loc)
                     for r in para.runs:
@@ -755,7 +939,7 @@ def analyze_pptx(path, F, brand):
                             if fn:
                                 font_use[font_family(fn)].append((si, loc, fn))
                             if brand.min_size and r.font.size and r.font.size.pt < brand.min_size:
-                                F.add("R6", "R6", si, None, f"حجم الخط {r.font.size.pt:.0f}pt أصغر من الحد الأدنى ({brand.min_size}pt): «{r.text[:30]}».",
+                                F.add("R6", "R6", si, sbb, f"حجم الخط {r.font.size.pt:.0f}pt أصغر من الحد الأدنى ({brand.min_size}pt): «{r.text[:30]}».",
                                       f"Text size {r.font.size.pt:.0f}pt is below the minimum ({brand.min_size}pt): \"{r.text[:30]}\".", severity="warn",
                                       method="code: run font size", snippet=r.text[:30], loc=loc)
                             try:
@@ -764,11 +948,11 @@ def analyze_pptx(path, F, brand):
                                 rgb = None
                             if rgb is not None and brand.colors and not is_neutral(tuple(rgb)):
                                 if min(rgb_dist(tuple(rgb), hex_to_rgb(c)) for c in brand.colors) > 40:
-                                    F.add("R6", "R6", si, None, f"لون النص #{rgb} مش من ألوان البراند.", f"Text color #{rgb} is not in the brand palette.",
+                                    F.add("R6", "R6", si, sbb, f"لون النص #{rgb} مش من ألوان البراند.", f"Text color #{rgb} is not in the brand palette.",
                                           severity="warn", method="code: run color", snippet=str(rgb), loc=loc)
                     ln = 0
                     for w in re.findall(r"\S+", nfkc(text)):
-                        tokens.append(Token(w, si, None, ar_n > 0, (loc, pi), loc))
+                        tokens.append(Token(w, si, sbb, ar_n > 0, (loc, pi), loc))
                     text_only_typography(F, text, si, loc)
     run_text_rules(F, tokens, brand.numerals, text_arrows=True)
     if brand.fonts:
@@ -781,6 +965,7 @@ def analyze_pptx(path, F, brand):
                       method="code: run font names", snippet=uses[0][2], loc=uses[0][1])
     F.note("R1", "PowerPoint text is plain Unicode that PowerPoint shapes itself, so joining cannot be wrong in the file.")
     F.note("R7", "Page-edge pixel checks need a rendered page. PPTX files are checked on their text and settings, not on rendered pixels.")
+    F.note("R8", "Consistency checks need real page geometry, which a PPTX file does not give without rendering it. Export the deck to PDF and upload that.")
     return len(prs.slides)
 
 
@@ -819,7 +1004,7 @@ def analyze_image_pixels(img, F, brand):
         for k, v in cols.most_common(3):
             rgb = tuple(i * 24 + 12 for i in k)
             if v / total > 0.06 and min(rgb_dist(rgb, hex_to_rgb(c)) for c in brand.colors) > 60:
-                F.add("R6", "R6", 1, None, f"لون سائد في الصورة ({v * 100 // total}% من المساحة) قريب من #%02x%02x%02x ومش قريب من ألوان البراند." % rgb,
+                F.add("R6", "R6", 1, [0, 0, img.width, img.height], f"لون سائد في الصورة ({v * 100 // total}% من المساحة) قريب من #%02x%02x%02x ومش قريب من ألوان البراند." % rgb,
                       f"A dominant color in the image ({v * 100 // total}% of the area), close to #%02x%02x%02x, is not near any brand color." % rgb,
                       severity="warn", confidence="medium", method="code: pixel color histogram", snippet="#%02x%02x%02x" % rgb)
     F.note("R1", "Flat images carry no text layer, so shaping, bidi, numerals and spelling cannot be read by code alone. Paste the text into the text box to check it. Reading text out of images needs a vision model API key (planned for a later version).")
@@ -827,3 +1012,4 @@ def analyze_image_pixels(img, F, brand):
     F.note("R3", "Needs a text layer. Not run on flat images.")
     F.note("R4", "Needs a text layer. Not run on flat images.")
     F.note("R5", "Needs a text layer. Paste the text to check spelling.")
+    F.note("R8", "Needs a text layer with font sizes. Not run on flat images.")
