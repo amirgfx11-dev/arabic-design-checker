@@ -189,8 +189,8 @@ def generate(path, brand):
                 if not AR.search(r.text) and not re.search(r"\d", r.text):
                     continue
                 for (a, b, rep, kind, nar, nen, conf) in _run_edits(r.text, para_ar, ntarget, tdom):
-                    ctx_a = r.text[max(0, a - 14):a]
-                    ctx_b = r.text[b:b + 14]
+                    ctx_a = " ".join(r.text[:a].split(" ")[-4:])
+                    ctx_b = " ".join(r.text[b:].split(" ")[:4])
                     corr.append(dict(id=f"{key}.{pi}.{ri}.{a}", kind=kind, slide=si, shape=name, before=r.text[a:b], after=rep,
                                      ctx_before=ctx_a, ctx_after=ctx_b, note_ar=nar, note_en=nen, confidence=conf,
                                      method="code: " + {"spell": "curated spelling patterns", "letters": "character map", "digits": "digit map",
