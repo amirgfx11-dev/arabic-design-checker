@@ -115,6 +115,7 @@ def check():
                 kind = "pdf"
                 doc, n_pages, _ = engine.analyze_pdf(src, F, brand, max_pages=MAX_PAGES)
                 engine.pixel_checks_pdf(doc, n_pages, F, brand, ocr=bool(request.form.get("ocr")))
+                engine.consistency_pdf(doc, n_pages, F)
             elif ext in ("png", "jpg", "jpeg", "webp"):
                 kind = "image"
                 img = Image.open(src).convert("RGB")
@@ -123,6 +124,7 @@ def check():
             elif ext == "pptx":
                 kind = "pptx"
                 n_pages = engine.analyze_pptx(src, F, brand)
+                doc = engine.pptx_wireframe_doc(F.pptx) if F.pptx else None
             else:
                 shutil.rmtree(jdir, ignore_errors=True)
                 return render_template("index.html", error="نوع الملف مش مدعوم. المدعوم: PDF وPNG وJPG وPPTX.", ocr=engine.tesseract_available(), max_pages=MAX_PAGES), 400
