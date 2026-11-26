@@ -15,10 +15,12 @@ def band(v):
     return BANDS[-1][1:]
 
 
-def compute(items, rules, pages, applied=None, total=None, has_arabic=True, kind=""):
+def compute(items, rules, pages, applied=None, total=None, has_arabic=True, kind="", limited=None):
     """rules: engine.RULES (key -> (en, ar)). Returns dict(value, band, band_ar, color, parts, scale, ...)."""
     if not has_arabic:
         return dict(value=None, state="no_arabic", reason=("image" if kind == "image" else "none"), applied=applied, total=total, pages=pages, parts=[])
+    if limited:  # text layer does not match the drawn page: any number would be misleading
+        return dict(value=None, state="limited", band_ar="يحتاج مراجعة يدوية", color="#ffb454", reasons=limited, applied=applied, total=total, pages=pages, parts=[])
     by = {}
     for it in items:
         sev = it.get("severity")
