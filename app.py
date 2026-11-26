@@ -6,7 +6,7 @@ from flask import (Flask, abort, redirect, render_template, request, send_file, 
 import fitz
 from PIL import Image
 
-import csv, engine, fixes, report, autofix, scoring
+import csv, re, engine, fixes, report, autofix, scoring
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 40 * 1024 * 1024
@@ -96,6 +96,9 @@ def build_brand(form, files, tmpdir):
     return b
 
 
+AR_RE = re.compile("[\u0621-\u064A\u066E-\u06D3\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]")
+
+
 class JobError(Exception):
     def __init__(self, msg, code=400):
         super().__init__(msg)
@@ -116,6 +119,7 @@ def run_job(save, fname, pasted, form, files, ocr):
     n_pages = 1
     kind = "text"
     pptx_real = False
+    ar_n = 0
     try:
         if save:
             fname = os.path.basename(fname)
@@ -125,6 +129,10 @@ def run_job(save, fname, pasted, form, files, ocr):
             if ext == "pdf":
                 kind = "pdf"
                 doc, n_pages, _ = engine.analyze_pdf(src, F, brand, max_pages=MAX_PAGES)
+                try:
+                    ar_n = sum(len(AR_RE.findall(pg.get_text())) for pg in doc)
+                except Exception:
+                    ar_n = 1
                 engine.pixel_checks_pdf(doc, n_pages, F, brand, ocr=ocr)
                 engine.consistency_pdf(doc, n_pages, F)
             elif ext in ("png", "jpg", "jpeg", "webp"):
@@ -135,6 +143,11 @@ def run_job(save, fname, pasted, form, files, ocr):
             elif ext == "pptx":
                 kind = "pptx"
                 n_pages = engine.analyze_pptx(src, F, brand)
+                try:
+                    from pptx import Presentation
+                    ar_n = sum(len(AR_RE.findall(tf.text)) for _s, _n, _k, tf in autofix._frames(Presentation(src)))
+                except Exception:
+                    ar_n = 1
                 try:
                     shutil.copy(src, os.path.join(jdir, "original.pptx"))
                     json.dump(autofix.generate(src, brand), open(os.path.join(jdir, "corrections.json"), "w"), ensure_ascii=False)
@@ -151,6 +164,7 @@ def run_job(save, fname, pasted, form, files, ocr):
             fname = "نص ملصق"
         if pasted:
             engine.analyze_text(pasted, F, brand)
+            ar_n += len(AR_RE.findall(pasted))
     except JobError:
         raise
     except Exception as e:  # unreadable / corrupt file
@@ -168,7 +182,8 @@ def run_job(save, fname, pasted, form, files, ocr):
     pdir = os.path.join(jdir, "pages")
     pages = report.mark_pages(doc, items, pdir)
     rows = report.status_rows(dict(F.stats))
-    sc = scoring.compute(items, engine.RULES, n_pages)
+    applied = sum(1 for r_ in rows if r_["status"] != "not_run")
+    sc = scoring.compute(items, engine.RULES, n_pages, applied, len(rows), ar_n >= 3, kind)
     meta = dict(id=jid, filename=fname, kind=kind, pptx_real=pptx_real, pages=n_pages, when=datetime.now().strftime("%Y-%m-%d %H:%M"),
                 seconds=round(time.time() - t0, 1), brand=brand.summary() if brand.active() else None,
                 pasted=bool(pasted), ocr=ocr, tone=F.tone, score=sc)
@@ -230,7 +245,7 @@ def _batch_worker(bid):
             jid = run_job(lambda dst, p=path: shutil.copy(p, dst), it["name"], "", {}, {}, False)
             r = load(jid)
             its = r["items"]
-            it.update(status="done", jid=jid, kind=r["meta"]["kind"], pages=r["meta"]["pages"], score=r["meta"]["score"]["value"],
+            it.update(status="done", jid=jid, kind=r["meta"]["kind"], pages=r["meta"]["pages"], score=r["meta"]["score"]["value"], applied=r["meta"]["score"].get("applied"), total=r["meta"]["score"].get("total"),
                       errors=sum(1 for x in its if x["severity"] == "error"), warns=sum(1 for x in its if x["severity"] == "warn"))
         except JobError as e:
             it.update(status="error", msg=e.msg)
@@ -278,8 +293,11 @@ def _batch_stats(st):
     done = [i for i in st["items"] if i["status"] == "done"]
     stale = (not st["done"]) and time.time() - os.path.getmtime(os.path.join(_bpath(st["id"]), "batch.json")) > 600
     for it in done:
-        key, ar, color = scoring.band(it["score"])
-        it.update(band_ar=ar, color=color)
+        if it["score"] is None:
+            it.update(band_ar="غير منطبق", color="#888")
+        else:
+            key, ar, color = scoring.band(it["score"])
+            it.update(band_ar=ar, color=color)
         cj = os.path.join(DATA, it["jid"], "corrections.json")
         it["fixable"] = 0
         if os.path.exists(cj):
@@ -287,7 +305,8 @@ def _batch_stats(st):
                 it["fixable"] = sum(1 for c in json.load(open(cj))["corrections"] if c.get("default_on"))
             except Exception:
                 pass
-    avg = round(sum(i["score"] for i in done) / len(done)) if done else None
+    scored = [i for i in done if i["score"] is not None]
+    avg = round(sum(i["score"] for i in scored) / len(scored)) if scored else None
     common = {}
     for it in done:
         try:
@@ -299,7 +318,7 @@ def _batch_stats(st):
         except Exception:
             pass
     common = sorted(({"name": g["name"], "n": g["n"], "files": len(g["files"])} for g in common.values()), key=lambda g: -g["n"])[:5]
-    return dict(done=done, avg=avg, stale=stale, common=common,
+    return dict(done=done, scored=len(scored), avg=avg, stale=stale, common=common,
                 errors=sum(i["errors"] for i in done), warns=sum(i["warns"] for i in done),
                 finished=sum(1 for i in st["items"] if i["status"] in ("done", "error")),
                 fixable=sum(i["fixable"] for i in done),
@@ -312,7 +331,7 @@ def batch_view(bid):
     stats = _batch_stats(st)
     items = list(st["items"])
     if request.args.get("sort") == "score":
-        items.sort(key=lambda i: (i["status"] != "done", i.get("score", 0)))
+        items.sort(key=lambda i: (i["status"] != "done", i.get("score") is None, i.get("score") or 0))
     return render_template("batch.html", st=st, items=items, s=stats, sort=request.args.get("sort", ""), kind_ar=KIND_AR,
                            live=(not st["done"]) and not stats["stale"])
 
@@ -326,7 +345,7 @@ def batch_csv(bid):
     w.writerow(["file", "type", "pages", "score_0_100", "band", "errors", "warnings", "auto_fixable", "status"])
     for i in st["items"]:
         if i["status"] == "done":
-            w.writerow([i["name"], i["kind"], i["pages"], i["score"], i["band_ar"], i["errors"], i["warns"], i["fixable"], "ok"])
+            w.writerow([i["name"], i["kind"], i["pages"], "" if i["score"] is None else i["score"], i["band_ar"], i["errors"], i["warns"], i["fixable"], "ok"])
         else:
             w.writerow([i["name"], "", "", "", "", "", "", "", i.get("msg", i["status"])])
     resp = make_response("\ufeff" + buf.getvalue())
