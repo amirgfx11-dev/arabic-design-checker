@@ -8,7 +8,15 @@
 <p class="lead" dir="auto">{{ r.meta.filename }} · {{ r.meta.pages }} صفحة · تم الفحص في {{ r.meta.seconds }} ثانية · {{ r.meta.when }}</p>
 </section>
 {% set sc = r.meta.get('score') %}
-{% if sc and sc.state == 'no_arabic' %}<div class="score na" style="--c:#8a8a8a">
+{% if sc and sc.state == 'limited' %}{% set tl = r.meta.get('textlayer') %}<div class="score na" style="--c:#ffb454">
+<div class="ring"><b>!</b><span>بلا درجة</span></div>
+<div class="sb"><div class="band" style="color:#ffb454">يحتاج مراجعة يدوية · تغطية محدودة</div>
+<p class="note" style="margin:4px 0 0">النص المخزَّن داخل هذا الـPDF لا يطابق ما هو مرسوم على الصفحة، لذلك لا نعرض درجة. {{ tl.flagged }} كلمة من {{ tl.checked }} كلمة مفحوصة تطابق الصفحة بصورة أوضح بعد تبديل حرفين فيها{% if tl.garbage >= 3 %}، ووُجدت {{ tl.garbage }} رموز استخراج تالفة داخل النص العربي{% endif %}. الفحوص النصية (الإملاء والأرقام والتشكيل والاتجاه والنبرة) تقرأ هذا النص نفسه، فنتائجها أدناه موسومة «غير موثّقة». الفحوص البصرية (الحواف والمحاذاة والاتساق) تعتمد على الصفحة المرسومة وتبقى سارية.</p>
+<details class="how" open><summary>الكلمات التي لا تطابق الصفحة (بالكود، دون نموذج لغوي){% if tl.mode == 'fallback' %} · مقارنة بخط بديل، الثقة متوسطة{% else %} · مقارنة بخط الملف نفسه{% endif %}</summary>
+<table>{% for w in tl.words[:12] %}<tr><td>صفحة {{ w.page }}</td><td dir="rtl">النص المخزَّن: <b>{{ w.text }}</b></td><td dir="rtl">الأقرب لما هو مرسوم: <b>{{ w.closer }}</b></td></tr>{% endfor %}</table>
+{% set crops = tl.words|selectattr('crop')|list %}{% for w in crops[:3] %}<img class="crop" style="max-width:260px;background:#fff;margin:6px 6px 0 0" src="{{ url_for('img', jid=r.meta.id, name=w.crop) }}" alt="الكلمة كما هي مرسومة">{% endfor %}
+<p class="note">هذا لا يثبت أن كل كلمة خاطئة، بل أن الاستخراج غير موثوق في هذا الملف. صدّر الملف من برنامج التصميم بخيار يحفظ النص بترتيبه الصحيح، أو راجع الصفحات بعينك. لم تُحتسب درجة لأن أي رقم هنا سيوحي بتغطية لا نملكها.</p></details></div></div>
+{% elif sc and sc.state == 'no_arabic' %}<div class="score na" style="--c:#8a8a8a">
 <div class="ring"><b>—</b><span>بلا درجة</span></div>
 <div class="sb"><div class="band" style="color:#ddd">لا يوجد محتوى عربي في هذا الملف</div>
 <p class="note" style="margin:4px 0 0">الفحوص العربية غير منطبقة، لذلك لا نعرض درجة ولا تقييمًا. الدرجة من 100 تُعرض فقط للملفات التي فيها نص عربي يمكن فحصه.{% if sc.reason == 'image' %} والصور المسطحة لا نقرأ نصها دون مفتاح واجهة رؤية، ويمكنك لصق النص في صفحة الرفع ليُفحص.{% endif %}</p>
@@ -26,7 +34,7 @@
 <div class="stats">
 <div><b style="color:var(--err)">{{ ne }}</b><span>خطأ</span></div>
 <div><b style="color:var(--warn)">{{ nw }}</b><span>تنبيه</span></div>
-<div><b style="color:var(--green)">{{ r.rows|selectattr('status','equalto','clean')|list|length }}</b><span>فحص سليم</span></div>
+<div><b style="color:var(--green)">{{ r.rows|selectattr('status','equalto','clean')|list|length }}</b><span>{% if sc and sc.state == 'limited' %}فحص سليم (النصية منها غير موثّقة){% else %}فحص سليم{% endif %}</span></div>
 <div><b style="color:#888">{{ r.rows|selectattr('status','equalto','not_run')|list|length }}</b><span>لم يُختبر</span></div>
 </div>
 <div class="actions">
@@ -108,7 +116,7 @@ f.addEventListener('submit',e=>{if(!boxes().some(b=>b.checked)){e.preventDefault
 {% for it in g['its'] %}
 <div class="fnd {{ '' if it.crop else 'nocrop' }}" id="f{{ it.n }}">
 <div>
-<h4><span class="num n-{{ it.severity }}">{{ it.n }}</span><span class="badge b-{{ it.severity }}">{{ 'خطأ' if it.severity=='error' else 'تنبيه' }}</span>
+<h4><span class="num n-{{ it.severity }}">{{ it.n }}</span><span class="badge b-{{ it.severity }}">{{ 'خطأ' if it.severity=='error' else 'تنبيه' }}</span>{% if it.unverified %}<span class="badge b-not_run" title="يعتمد على الطبقة النصية في الملف وهي غير موثوقة هنا">غير موثّق</span>{% endif %}
 {% if it.page %}<span class="meta">صفحة {{ it.page }}</span>{% endif %}{% if it.loc %}<span class="meta">{{ it.loc }}</span>{% endif %}</h4>
 <div class="why">{{ it.message_ar }}</div>
 {% if it.fix_ar %}<div class="fix"><b>التصحيح المقترح</b>{{ it.fix_ar }}</div>{% endif %}
