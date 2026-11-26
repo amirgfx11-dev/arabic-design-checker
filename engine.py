@@ -848,7 +848,10 @@ def consistency_pdf(doc, n_pages, F):
                               f"One of {n} otherwise identical stacked elements (same font and size) has a different weight: {'bold' if odd['bold'] else 'regular'} while the rest are {'regular' if odd['bold'] else 'bold'}.",
                               severity="warn", confidence="low", method="code: font names and sizes from the PDF text layer", snippet="weight")
             # (c) alignment edge
-            if n >= 4:
+            cen = [(b["bbox"][0] + b["bbox"][2]) / 2 for b in ch]
+            cmed = sorted(cen)[n // 2]
+            centered = sum(1 for v in cen if abs(v - cmed) <= 3.0) >= n - 1   # centered labels: edges differ by design
+            if n >= 4 and not centered:
                 for edge, idx in (("right", 2), ("left", 0)):
                     vals = [b["bbox"][idx] for b in ch]
                     med = sorted(vals)[len(vals) // 2]
