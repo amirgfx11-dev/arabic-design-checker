@@ -71,13 +71,45 @@ def mark_pages(doc, items, outdir, dpi=110):
     return pages
 
 
+NOTES_AR = {
+    "Tone is judged from word lists of formal and colloquial Arabic (code, not a language model). It sees only the words listed, so it can miss a casual phrase and cannot judge the writing quality. It names the dominant register and flags words that break it.":
+        "تُحدَّد النبرة من قوائم كلمات للعربية الرسمية والعامية (كود وليس نموذجًا لغويًا). يرى الفحص الكلمات المدرجة فقط، فقد تفوته عبارة عامية، ولا يحكم على جودة الصياغة. يحدد النبرة السائدة وينبّه إلى الكلمات الخارجة عنها.",
+    "Needs a text layer. Paste the text to check tone.": "يحتاج إلى طبقة نص. الصق النص لفحص النبرة.",
+    "Shaping is checked on PDF text layers (isolated-form letters inside words). Text typed or pasted as plain Unicode is shaped by the viewer, so there is nothing to check.":
+        "يُفحص تشكيل الحروف في طبقة النص داخل ملفات PDF (حروف بالشكل المنفصل داخل الكلمات). أما النص المكتوب أو الملصق بصيغة Unicode العادية فيتولى العارض تشكيله، فلا يوجد ما يُفحص.",
+    "Arrow and icon direction cannot be read from a PDF text layer (a font can draw a left arrow from a right-arrow character), so it is not tested here. It needs the vision step planned for a later version. Right-edge alignment of long Arabic paragraphs is tested.":
+        "لا يمكن قراءة اتجاه الأسهم والأيقونات من طبقة النص في PDF (فقد يرسم الخط سهمًا إلى اليسار من رمز يشير إلى اليمين)، لذلك لا يُختبر هنا. يحتاج إلى مرحلة الرؤية المخطط لها في نسخة لاحقة. تُفحص محاذاة الفقرات العربية الطويلة إلى اليمين.",
+    "For PDFs the code checks what can be proven from the page geometry: bracket mirroring, reversed Latin text, punctuation at the wrong end. It cannot know the intended word order of a flattened design.":
+        "في ملفات PDF يفحص الكود ما يمكن إثباته من هندسة الصفحة: انعكاس الأقواس، والنص اللاتيني المعكوس، وعلامات الترقيم في الطرف الخطأ. ولا يمكنه معرفة ترتيب الكلمات المقصود في تصميم مسطّح.",
+    "Digits inside embedded screenshots were not checked here because OCR (tesseract) is not installed on this server.":
+        "لم تُفحص الأرقام داخل لقطات الشاشة المضمّنة لأن أداة OCR (tesseract) غير مثبّتة على هذا الخادم.",
+    "Text-layer digits are checked exactly. Digits inside embedded screenshots are read by OCR, so those results are medium confidence.":
+        "تُفحص أرقام طبقة النص بدقة. أما الأرقام داخل اللقطات المضمّنة فتُقرأ بتقنية OCR، لذا فنتائجها متوسطة الثقة.",
+    "Uses font sizes, weights and box positions from the PDF text layer. It cannot see images, shapes or intent, so a deliberate emphasis can look like an error. Medium means the pattern is clear in the geometry, low means check by eye.":
+        "يعتمد على أحجام الخطوط وأوزانها ومواضع الصناديق من طبقة النص في PDF. لا يرى الصور ولا الأشكال ولا القصد، فقد يبدو التمييز المتعمّد خطأً. الثقة المتوسطة تعني أن النمط واضح في الهندسة، والمنخفضة تعني ضرورة المراجعة بالعين.",
+    "PowerPoint text is plain Unicode that PowerPoint shapes itself, so joining cannot be wrong in the file.":
+        "نص PowerPoint بصيغة Unicode عادية يتولى PowerPoint تشكيلها، فلا يمكن أن يكون الوصل خاطئًا داخل الملف.",
+    "Page-edge pixel checks need a rendered page. PPTX files are checked on their text and settings, not on rendered pixels.":
+        "يتطلب فحص حواف الصفحة بالبكسل صفحة مرسومة. تُفحص ملفات PPTX من حيث النص والإعدادات لا من حيث البكسلات.",
+    "Consistency checks need real page geometry, which a PPTX file does not give without rendering it. Export the deck to PDF and upload that.":
+        "تحتاج فحوص الاتساق إلى هندسة صفحة حقيقية، ولا يوفرها ملف PPTX دون رسمه. صدّر العرض بصيغة PDF وارفعه.",
+    "Pasted text cannot show how it is laid out, so bidi order cannot be tested here. Upload the PDF to test it.":
+        "لا يُظهر النص الملصق طريقة تخطيطه، لذلك لا يمكن اختبار ترتيب الاتجاهات هنا. ارفع ملف PDF لاختباره.",
+    "Flat images carry no text layer, so shaping, bidi, numerals and spelling cannot be read by code alone. Paste the text into the text box to check it. Reading text out of images needs a vision model API key (planned for a later version).":
+        "لا تحتوي الصور المسطحة على طبقة نص، فلا يستطيع الكود وحده قراءة التشكيل والاتجاه والأرقام والإملاء. الصق النص في الخانة المخصصة لفحصه. قراءة النص من الصور تحتاج مفتاح واجهة برمجة لنموذج رؤية (مخطط له في نسخة لاحقة).",
+    "Needs a text layer. Not run on flat images.": "يحتاج إلى طبقة نص، ولا يعمل على الصور المسطحة.",
+    "Needs a text layer. Paste the text to check spelling.": "يحتاج إلى طبقة نص. الصق النص لفحص الإملاء.",
+    "Needs a text layer with font sizes. Not run on flat images.": "يحتاج إلى طبقة نص بأحجام الخطوط، ولا يعمل على الصور المسطحة.",
+}
+
+
 def status_rows(stats):
     rows = []
-    for key in ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8"]:
+    for key in ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R9", "R8"]:
         st = stats.get(key, {"checked": 0, "flagged": 0, "note": ""})
         status = "flagged" if st["flagged"] else ("clean" if st["checked"] > 0 else "not_run")
         rows.append(dict(key=key, name_en=engine.RULES[key][0], name_ar=engine.RULES[key][1], status=status,
-                         checked=st["checked"], flagged=st["flagged"], note=st.get("note", "")))
+                         checked=st["checked"], flagged=st["flagged"], note=st.get("note", ""), note_ar=NOTES_AR.get(st.get("note", ""), "")))
     return rows
 
 
@@ -129,14 +161,14 @@ def build_pdf(path, meta, items, rows, page_dir):
     ne = sum(1 for i in items if i["severity"] == "error")
     nw = sum(1 for i in items if i["severity"] == "warn")
     y += 14
-    y = put(d, y, f"النتيجة: {ne} خطأ مؤكد، {nw} تنبيه.", font(40, True), RED if ne else (30, 130, 60), ar=True)
+    y = put(d, y, f"النتيجة: {ne} خطأ مؤكد و{nw} تنبيه.", font(40, True), RED if ne else (30, 130, 60), ar=True)
     y += 10
     for r in rows:
         st = {"clean": "سليم", "flagged": f"{r['flagged']} ملاحظة", "not_run": "لم يُختبر"}[r["status"]]
         col = {"clean": (30, 130, 60), "flagged": RED, "not_run": (110, 110, 110)}[r["status"]]
         y = put(d, y, f"{r['name_ar']} ({r['key']}): {st}" + (f" - فُحص {r['checked']}" if r["checked"] else ""), font(28), col, ar=True)
     y += 14
-    y = put(d, y, "ملاحظة: الفحص كود ثابت بدون نموذج ذكاء اصطناعي، فنفس الملف يطلع نفس النتيجة دايمًا. الكود يقرأ طبقة النص والبكسلات فقط. اتجاه الأسهم والأيقونات وقراءة الصور المسطحة محتاجة نموذج رؤية، وهو مش في النسخة دي.", font(22), (90, 90, 90), ar=True)
+    y = put(d, y, "ملاحظة: يعتمد الفحص على كود ثابت دون نموذج ذكاء اصطناعي، لذا يعطي الملف نفسه النتيجة نفسها دائمًا. يقرأ الكود طبقة النص والبكسلات فقط. أما اتجاه الأسهم والأيقونات وقراءة الصور المسطحة فتحتاج نموذج رؤية، وهو غير متوفر في هذه النسخة.", font(22), (90, 90, 90), ar=True)
     pages.append(im)
     im, d, y = new_page()
     y = put(d, y, "قائمة الملاحظات", font(44, True), ar=True)
@@ -154,6 +186,8 @@ def build_pdf(path, meta, items, rows, page_dir):
         y = put(d, y, f"{engine.RULES[it['check']][1]} - {where}", font(28, True), col, maxw=PW - 2 * M - 70, ar=True)
         y = put(d, y, it["message_ar"], font(26), maxw=PW - 2 * M - 70, ar=True)
         y = put(d, y, it["message_en"], font(19, False, False), (90, 90, 90), maxw=PW - 2 * M - 70, ar=False, indent=70)
+        if it.get("fix_ar"):
+            y = put(d, y, "التصحيح المقترح: " + it["fix_ar"], font(26, True), (20, 110, 60), maxw=PW - 2 * M - 70, ar=True)
         y = put(d, y, f"method: {it['method']}  |  confidence: {it['confidence']}", font(17, False, False), (130, 130, 130), maxw=PW - 2 * M - 70, ar=False, indent=70)
         y += 14
     pages.append(im)
