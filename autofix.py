@@ -19,6 +19,8 @@ KINDS = {
     "letters": ("الحروف الفارسية", "Persian letter forms", True),
     "digits": ("توحيد نظام الأرقام", "Numeral system", True),
     "punct": ("علامات الترقيم والمسافات", "Punctuation and spacing", True),
+    "rtl": ("اتجاه الفقرة (RTL)", "Paragraph direction (RTL)", True),
+    "align": ("محاذاة الفقرة إلى اليمين", "Right alignment", True),
     "tone": ("تبديل الكلمات حسب النبرة", "Tone word swaps", False),
 }
 
@@ -101,6 +103,59 @@ def _tone_dominant(prs):
     return None
 
 
+def _counts(text):
+    t = engine.nfkc(text)
+    return len(engine.AR_LETTER.findall(t)), len(engine.LAT_LETTER.findall(t))
+
+
+def _is_placeholder(tf):
+    try:
+        return bool(tf._txBody.getparent().xpath(".//p:nvPr/p:ph"))
+    except Exception:
+        return False
+
+
+def _group_mixed(prs):
+    """shape/table key -> True when it holds a Latin-dominant paragraph (so left alignment may be intended)."""
+    mixed = {}
+    for si, name, key, tf in _frames(prs):
+        g = key.split(".t")[0]
+        for p in tf.paragraphs:
+            a, l = _counts("".join(r.text for r in p.runs))
+            if l >= 3 and l > a:
+                mixed[g] = True
+    return mixed
+
+
+def _para_edits(p, tf, key, mixed):
+    """Paragraph-level fixes. Returns list of (suffix, kind, before, after, note_ar, note_en, confidence) and a skip flag."""
+    text = "".join(r.text for r in p.runs)
+    a, l = _counts(text)
+    out, skipped = [], False
+    if a < 3 or a / max(1, a + l) < 0.6:
+        return out, skipped
+    pPr = p._p.pPr
+    rtl = pPr.get("rtl") if pPr is not None else None
+    algn = pPr.get("algn") if pPr is not None else None
+    is_rtl = rtl in ("1", "true")
+    if not is_rtl:
+        out.append(("rtl", "rtl", "LTR", "RTL",
+                    "الفقرة عربية واتجاهها من اليسار إلى اليمين. يُضبط اتجاهها RTL فتنتقل علامات الترقيم والأقواس إلى موضعها الصحيح عند العرض (لا تُعاد كتابة النص: الأقواس تنعكس بالعرض لا في الملف)",
+                    "Arabic paragraph is LTR. Sets direction to RTL so punctuation and brackets land correctly when rendered (the text itself is not rewritten; brackets mirror at render time, not in the file)",
+                    "high"))
+    share_ok = a / max(1, a + l) >= 0.8
+    group_mixed = mixed.get(key.split(".t")[0], False)
+    if algn in ("l",) or (algn is None and not _is_placeholder(tf)):
+        if share_ok and not group_mixed and (is_rtl or True):
+            out.append(("align", "align", "يسار" if algn == "l" else "افتراضي (يسار)", "يمين",
+                        "فقرة عربية محاذاتها إلى اليسار. تُضبط إلى اليمين مثل بقية النص العربي",
+                        "Arabic paragraph is left-aligned. Sets it to right alignment",
+                        "medium"))
+        elif algn == "l":
+            skipped = True
+    return out, skipped
+
+
 def _run_edits(text, para_ar, ntarget, tdom):
     """Edits for one run: list of (start, end, replacement, kind, note_ar, note_en, confidence)."""
     ed = []
@@ -178,13 +233,21 @@ def generate(path, brand):
     prs = Presentation(path)
     ntarget, nwhy = _numeral_target(prs, getattr(brand, "numerals", "any"))
     tdom = _tone_dominant(prs)
-    corr, skipped = [], 0
+    corr, skipped, align_skipped = [], 0, 0
+    mixed = _group_mixed(prs)
     for si, name, key, tf in _frames(prs):
         for pi, p in enumerate(tf.paragraphs):
             ptext = "".join(r.text for r in p.runs)
             if not AR.search(ptext):
                 continue
             para_ar = _para_is_ar(ptext)
+            pe, sk = _para_edits(p, tf, key, mixed)
+            align_skipped += sk
+            for (suf, kind, bf, af, nar, nen, conf) in pe:
+                ex = " ".join(ptext.split()[:7])
+                corr.append(dict(id=f"{key}.{pi}.{suf}", kind=kind, slide=si, shape=name, before=bf, after=af,
+                                 ctx_before=ex + " … ", ctx_after="", note_ar=nar, note_en=nen, confidence=conf,
+                                 method="code: paragraph XML attribute", default_on=KINDS[kind][2]))
             for ri, r in enumerate(p.runs):
                 if not AR.search(r.text) and not re.search(r"\d", r.text):
                     continue
@@ -208,7 +271,7 @@ def generate(path, brand):
                     for w in re.findall(r"\S+", joined):
                         if engine.spell_check_word(w) and w not in per_run:
                             skipped += 1
-    return dict(corrections=corr, tone_dom=tdom, numeral_target=ntarget, numeral_why=nwhy, tone=tdom, skipped_split=skipped)
+    return dict(corrections=corr, tone_dom=tdom, numeral_target=ntarget, numeral_why=nwhy, tone=tdom, skipped_split=skipped, align_skipped=align_skipped)
 
 
 def apply(src, dst, selected_ids, ntarget, tdom):
@@ -217,12 +280,22 @@ def apply(src, dst, selected_ids, ntarget, tdom):
     prs = Presentation(src)
     sel = set(selected_ids)
     applied = []
+    mixed = _group_mixed(prs)
     for si, name, key, tf in _frames(prs):
         for pi, p in enumerate(tf.paragraphs):
             ptext = "".join(r.text for r in p.runs)
             if not AR.search(ptext):
                 continue
             para_ar = _para_is_ar(ptext)
+            for (suf, kind, *_r) in _para_edits(p, tf, key, mixed)[0]:
+                cid = f"{key}.{pi}.{suf}"
+                if cid in sel:
+                    pPr = p._p.get_or_add_pPr()
+                    if kind == "rtl":
+                        pPr.set("rtl", "1")
+                    else:
+                        pPr.set("algn", "r")
+                    applied.append(cid)
             for ri, r in enumerate(p.runs):
                 if not AR.search(r.text) and not re.search(r"\d", r.text):
                     continue
