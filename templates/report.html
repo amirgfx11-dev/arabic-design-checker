@@ -44,7 +44,8 @@
 </form>
 {% if corr.numeral_target %}<p class="note">نظام الأرقام المستخدم في التوحيد: {{ 'الهندي ٠١٢' if corr.numeral_target=='indic' else 'الغربي 012' }} ({{ corr.numeral_why }}).</p>{% endif %}
 {% if corr.skipped_split %}<p class="note">تنبيه: {{ corr.skipped_split }} كلمة خاطئة مقسومة على أكثر من نمط تنسيق داخل الفقرة، فلم تُصحَّح تلقائيًا كي لا يتغير تنسيقها. ستجدها في الملاحظات أدناه.</p>{% endif %}
-<p class="note">لا يصحَّح تلقائيًا: اتجاه الفقرة والمحاذاة، الألوان والخطوط، ترتيب العملة، والأخطاء غير المدرجة في قوائم الأنماط. هذه تبقى في الملاحظات أدناه لتعدّلها بنفسك.</p>
+<p class="note">{% if corr.align_skipped %}<p class="note">{{ corr.align_skipped }} فقرة عربية محاذاة لليسار لم تُعدَّل تلقائيًا لأنها داخل صندوق فيه نص لاتيني (قد تكون المحاذاة مقصودة). ستجدها في الملاحظات أدناه.</p>{% endif %}
+<p class="note">لا يصحَّح تلقائيًا: المحاذاة في الوسط، الفقرات المختلطة بنص لاتيني، النص المخزَّن بترتيب معكوس، الألوان والخطوط، ترتيب العملة، والأخطاء غير المدرجة في قوائم الأنماط. هذه تبقى في الملاحظات أدناه لتعدّلها بنفسك.</p></p>
 <script>
 (function(){const f=document.getElementById('afxform');const cnt=document.getElementById('cnt');
 const boxes=()=>[...f.querySelectorAll('input[name=c]')];
