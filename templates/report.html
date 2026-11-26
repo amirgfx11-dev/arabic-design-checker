@@ -19,6 +19,51 @@
 <a class="btn ghost" href="/">فحص ملف آخر</a>
 </div>
 
+{% if corr is not none and r.meta.kind == "pptx" %}
+<section class="afx" id="autofix">
+<h2>التصحيح التلقائي <span class="pill">PPTX</span></h2>
+{% if corr.corrections %}
+<p class="note" style="margin:0">وجدت الأداة <b>{{ corr.corrections|length }}</b> تصحيحًا آمنًا قابلًا للتطبيق داخل الملف نفسه. كل تصحيح بكود ثابت (قوائم أنماط وجداول حروف وأرقام)، وليس بنموذج لغوي. اختر ما تريد تطبيقه ثم نزّل النسخة المصحَّحة. الملف الأصلي لا يتغير، والتنسيق (الخط والحجم واللون) محفوظ.</p>
+<form method="post" id="afxform">
+<div class="bar2">
+<button class="btn" type="submit" formaction="{{ url_for('fixed_pptx', jid=r.meta.id) }}">تنزيل PPTX المصحَّح (<span id="cnt">0</span>)</button>
+<button class="btn ghost" type="submit" formaction="{{ url_for('corrections_csv', jid=r.meta.id) }}">تنزيل سجل التصحيحات CSV</button>
+<button class="btn ghost" type="button" id="selall">تحديد الكل</button>
+<button class="btn ghost" type="button" id="selnone">إلغاء الكل</button>
+</div>
+{% for k in ckinds %}
+<details class="kind" {% if k.on %}open{% endif %}>
+<summary><input type="checkbox" class="kall" data-k="{{ k.key }}" {% if k.on %}checked{% endif %}><span>{{ k.name }}</span><span class="pill">{{ k.its|length }}</span>{% if not k.on %}<span class="sm">غير محدد افتراضيًا: يغيّر الصياغة، راجعه بعينك</span>{% endif %}</summary>
+{% for c in k.its %}
+<label class="row"><input type="checkbox" name="c" value="{{ c.id }}" data-k="{{ k.key }}" {% if k.on %}checked{% endif %}>
+<span><span class="ctx">{{ c.ctx_before }}<del>{{ c.before }}</del> <ins>{{ c.after }}</ins>{{ c.ctx_after }}</span>
+<span class="sm" style="display:block">شريحة {{ c.slide }} · {{ c.shape }} · {{ c.note_ar }} · الثقة: {{ {'high':'عالية','medium':'متوسطة','low':'منخفضة'}[c.confidence] }} · {{ c.method|method_ar }}</span></span></label>
+{% endfor %}
+</details>
+{% endfor %}
+</form>
+{% if corr.numeral_target %}<p class="note">نظام الأرقام المستخدم في التوحيد: {{ 'الهندي ٠١٢' if corr.numeral_target=='indic' else 'الغربي 012' }} ({{ corr.numeral_why }}).</p>{% endif %}
+{% if corr.skipped_split %}<p class="note">تنبيه: {{ corr.skipped_split }} كلمة خاطئة مقسومة على أكثر من نمط تنسيق داخل الفقرة، فلم تُصحَّح تلقائيًا كي لا يتغير تنسيقها. ستجدها في الملاحظات أدناه.</p>{% endif %}
+<p class="note">لا يصحَّح تلقائيًا: اتجاه الفقرة والمحاذاة، الألوان والخطوط، ترتيب العملة، والأخطاء غير المدرجة في قوائم الأنماط. هذه تبقى في الملاحظات أدناه لتعدّلها بنفسك.</p>
+<script>
+(function(){const f=document.getElementById('afxform');const cnt=document.getElementById('cnt');
+const boxes=()=>[...f.querySelectorAll('input[name=c]')];
+const upd=()=>{cnt.textContent=boxes().filter(b=>b.checked).length;
+ f.querySelectorAll('.kall').forEach(k=>{const bs=boxes().filter(b=>b.dataset.k===k.dataset.k);k.checked=bs.every(b=>b.checked);k.indeterminate=!k.checked&&bs.some(b=>b.checked)})};
+f.addEventListener('change',e=>{if(e.target.classList.contains('kall'))boxes().filter(b=>b.dataset.k===e.target.dataset.k).forEach(b=>b.checked=e.target.checked);upd()});
+f.querySelectorAll('.kall').forEach(k=>k.addEventListener('click',e=>e.stopPropagation()));
+document.getElementById('selall').onclick=()=>{boxes().forEach(b=>b.checked=true);upd()};
+document.getElementById('selnone').onclick=()=>{boxes().forEach(b=>b.checked=false);upd()};
+f.addEventListener('submit',e=>{if(!boxes().some(b=>b.checked)){e.preventDefault();alert('اختر تصحيحًا واحدًا على الأقل.')}});upd()})();
+</script>
+{% else %}
+<p class="note" style="margin:0">لم تجد الأداة تصحيحات آمنة قابلة للتطبيق التلقائي في هذا الملف. راجع الملاحظات أدناه.</p>
+{% endif %}
+</section>
+{% elif r.meta.kind == "pdf" %}
+<div class="card" style="margin-top:26px"><b>التصحيح التلقائي:</b> متاح حاليًا لملفات PPTX فقط. ملفات PDF تبقى تقريرًا بالملاحظات والتصحيحات المقترحة، لأن تعديل النص داخل PDF مباشرة غير آمن.</div>
+{% endif %}
+
 {% if r['items'] %}
 <nav class="nav" aria-label="تنقل">
 {% for g in groups %}<a href="#g-{{ g.key }}">{{ g.name }}<b>{{ g.its|length }}</b></a>{% endfor %}
