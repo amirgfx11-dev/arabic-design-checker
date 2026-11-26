@@ -706,6 +706,36 @@ def pixel_checks_pdf(doc, n_pages, F, brand, ocr=True):
 
 
 # ----------------------------------------------------------------- R8 visual consistency (PDF text layer geometry)
+def pptx_render_doc(src, pptx_layout, workdir):
+    """Real render of the slides through LibreOffice (headless). Returns a fitz doc, or None if it cannot be trusted
+    (no LibreOffice, timeout, page count or page size not matching the slide layout)."""
+    import subprocess, shutil as _sh, os
+    exe = _sh.which("soffice") or _sh.which("libreoffice")
+    if not exe or not pptx_layout:
+        return None
+    try:
+        out = os.path.join(workdir, "lo_out"); os.makedirs(out, exist_ok=True)
+        prof = os.path.join(workdir, "lo_profile")
+        subprocess.run([exe, "--headless", "--norestore", "-env:UserInstallation=file://" + prof,
+                        "--convert-to", "pdf", "--outdir", out, src],
+                       check=True, timeout=90, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        pdfs = [f for f in os.listdir(out) if f.lower().endswith(".pdf")]
+        if not pdfs:
+            return None
+        d = fitz.open(os.path.join(out, pdfs[0]))
+        order = sorted(pptx_layout)
+        if d.page_count != len(order) or order != list(range(order[0], order[0] + len(order))):
+            return None
+        for i, si in enumerate(order):
+            W, H, _ = pptx_layout[si]
+            r = d[i].rect
+            if abs(r.width - W) > 0.03 * W or abs(r.height - H) > 0.03 * H:
+                return None
+        return d
+    except Exception:
+        return None
+
+
 def pptx_wireframe_doc(pptx_layout):
     """PPTX has no renderer here, so the report shows a schematic: gray boxes where text frames sit."""
     d = fitz.open()
