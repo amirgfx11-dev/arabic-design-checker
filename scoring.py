@@ -15,8 +15,10 @@ def band(v):
     return BANDS[-1][1:]
 
 
-def compute(items, rules, pages):
+def compute(items, rules, pages, applied=None, total=None, has_arabic=True, kind=""):
     """rules: engine.RULES (key -> (en, ar)). Returns dict(value, band, band_ar, color, parts, scale, ...)."""
+    if not has_arabic:
+        return dict(value=None, state="no_arabic", reason=("image" if kind == "image" else "none"), applied=applied, total=total, pages=pages, parts=[])
     by = {}
     for it in items:
         sev = it.get("severity")
@@ -31,13 +33,13 @@ def compute(items, rules, pages):
         p["raw"] += w
     scale = math.sqrt(max(1, pages))
     parts = []
-    total = 0.0
+    pen_sum = 0.0
     for p in by.values():
         pen = min(p["raw"], CAP) / scale
-        total += pen
+        pen_sum += pen
         parts.append(dict(check=p["check"], name=p["name"], errors=p["errors"], warns=p["warns"], penalty=round(pen, 1), capped=p["raw"] > CAP))
     parts.sort(key=lambda x: -x["penalty"])
-    value = max(0, min(100, int(round(100 - total))))
+    value = max(0, min(100, int(round(100 - pen_sum))))
     key, ar, color = band(value)
     return dict(value=value, band=key, band_ar=ar, color=color, parts=parts, scale=round(scale, 2), pages=pages,
-                w_err=W_ERR, w_warn=W_WARN, cap=CAP)
+                w_err=W_ERR, w_warn=W_WARN, cap=CAP, applied=applied, total=total, state="scored")
