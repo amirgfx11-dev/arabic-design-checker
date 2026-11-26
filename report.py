@@ -61,7 +61,7 @@ def mark_pages(doc, items, outdir, dpi=110):
 
 def status_rows(stats):
     rows = []
-    for key in ["R1", "R2", "R3", "R4", "R5", "R6", "R7"]:
+    for key in ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8"]:
         st = stats.get(key, {"checked": 0, "flagged": 0, "note": ""})
         status = "flagged" if st["flagged"] else ("clean" if st["checked"] > 0 else "not_run")
         rows.append(dict(key=key, name_en=engine.RULES[key][0], name_ar=engine.RULES[key][1], status=status,
