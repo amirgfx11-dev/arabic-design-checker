@@ -8,6 +8,7 @@ No AI model is called. What the code can read is limited to:
   - pasted text
 """
 import io, os, re, shutil, subprocess, tempfile, unicodedata, hashlib
+import tone as _tone
 from collections import Counter, defaultdict
 
 import fitz  # PyMuPDF
@@ -37,6 +38,7 @@ RULES = {
     "R5": ("Spelling and typography", "الإملاء والتنسيق الكتابي"),
     "R6": ("Brand guidelines", "مطابقة دليل الهوية"),
     "R7": ("Page edges / layout", "حواف الصفحة والتخطيط"),
+    "R9": ("Tone of voice (formal / friendly)", "نبرة الكتابة (رسمية / ودّية)"),
     "R8": ("Visual consistency (sizes, weights, alignment, spacing)", "اتساق التصميم (الأحجام والأوزان والمحاذاة والمسافات)"),
 }
 
@@ -72,6 +74,7 @@ class Findings:
     def __init__(self):
         self.items = []
         self.pptx = {}
+        self.tone = None
         self.stats = defaultdict(lambda: {"checked": 0, "flagged": 0, "note": ""})
 
     def checked(self, key, n=1):
@@ -129,6 +132,19 @@ def norm_word(w):
     return w.strip("،؛؟!.:()[]{}«»\"'“”-–—/\\|")
 
 
+NOTE_AR = [("hamza on alef", "الهمزة على الألف"), ("hamza under alef", "الهمزة تحت الألف"), ("missing waw", "واو ناقصة"),
+           ("extra alef", "ألف زائدة"), ("ta marbuta", "التاء المربوطة"), ("madda on alef", "المدة على الألف"),
+           ("preferred spelling", "الرسم المفضّل، والآخر مقبول")]
+
+
+def note_ar(note):
+    for en, ar in NOTE_AR:
+        if note.startswith(en):
+            m = re.search(r"\(([^)]*)\)", note)
+            return ar + (f": {m.group(1)}" if m and not note.startswith("preferred") else "")
+    return note
+
+
 def spell_check_word(w):
     """returns (matched stem, suggestion word, note) or None."""
     base = norm_word(w)
@@ -175,17 +191,17 @@ def run_text_rules(F, tokens, numeral_pref="any", paste_mode=False, text_arrows=
         major = "indic" if cnt["indic"] >= cnt["west"] else "west"
     else:
         major = None
-    names = {"indic": ("هندية ٠١٢", "Arabic-Indic (٠١٢)"), "west": ("غربية 012", "Western (012)"), "persian": ("فارسية ۰۱۲", "Persian (۰۱۲)")}
+    names = {"indic": ("هندية (٠١٢)", "Arabic-Indic (٠١٢)"), "west": ("غربية (012)", "Western (012)"), "persian": ("فارسية (۰۱۲)", "Persian (۰۱۲)")}
     if major and (len(cnt) > 1 or numeral_pref in ("indic", "west") or cnt.get("persian")):
         for t in digit_toks:
             kinds = digit_kind(t.text)
             bad = kinds - {major}
             if bad:
                 b = sorted(bad)[0]
-                why_ar = f"دليل الهوية بيطلب الأرقام ال{names[major][0]}" if numeral_pref in ("indic", "west") else f"باقي المستند ({cnt[major]} رقم) بالأرقام ال{names[major][0]}"
+                why_ar = f"دليل الهوية يشترط الأرقام ال{names[major][0]}" if numeral_pref in ("indic", "west") else f"بقية المستند ({cnt[major]} رقم) تستخدم الأرقام ال{names[major][0]}"
                 why_en = f"the brand rules require {names[major][1]}" if numeral_pref in ("indic", "west") else f"the rest of the document ({cnt[major]} numbers) uses {names[major][1]}"
                 dg = "".join(re.findall(r"[0-9٠-٩۰-۹]+", t.text)) or t.text
-                F.add("R3", "R3", t.page, t.bbox, f"الرقم «{dg}» بالأرقام ال{names[b][0]} لكن {why_ar}. وحّد نظام الأرقام.",
+                F.add("R3", "R3", t.page, t.bbox, f"الرقم «{dg}» مكتوب بالأرقام ال{names[b][0]}، بينما {why_ar}. يُفضَّل توحيد نظام الأرقام.",
                       f"Number \"{dg}\" uses {names[b][1]} but {why_en}. Use one numeral system.",
                       severity="error", confidence="high", method="code: digit script classification", snippet=t.text, loc=t.loc)
     # percent sign and currency position
@@ -196,7 +212,7 @@ def run_text_rules(F, tokens, numeral_pref="any", paste_mode=False, text_arrows=
         for t in toks:
             if any(c in INDIC for c in t.text) and "%" in t.text:
                 F.checked("R3")
-                F.add("R3", "R3", pg, t.bbox, f"«{t.text}»: أرقام هندية مع علامة % لاتينية. الأنسب ٪.",
+                F.add("R3", "R3", pg, t.bbox, f"«{t.text}»: أرقام هندية مع علامة النسبة اللاتينية (%). الأنسب استخدام ٪.",
                       f"\"{t.text}\": Arabic-Indic digits with Latin %. Prefer ٪.", severity="warn", confidence="high",
                       method="code: character classes", snippet=t.text, loc=t.loc)
         if not any(t.line_ar for t in toks) or any(t.bbox is None for t in toks):
@@ -209,7 +225,7 @@ def run_text_rules(F, tokens, numeral_pref="any", paste_mode=False, text_arrows=
                     # RTL reading: amount is read first, so the amount sits to the RIGHT of the currency.
                     if u.bbox and t.bbox and (t.bbox[0] + t.bbox[2]) / 2 > (u.bbox[0] + u.bbox[2]) / 2:
                         F.add("R3", "R3", pg, [min(t.bbox[0], u.bbox[0]), min(t.bbox[1], u.bbox[1]), max(t.bbox[2], u.bbox[2]), max(t.bbox[3], u.bbox[3])],
-                              f"العملة «{t.text}» تظهر قبل المبلغ «{u.text}» في اتجاه القراءة. المعتاد: المبلغ ثم العملة.",
+                              f"تظهر العملة «{t.text}» قبل المبلغ «{u.text}» عند القراءة. المعتاد في العربية كتابة المبلغ ثم العملة.",
                               f"Currency \"{t.text}\" is read before the amount \"{u.text}\". Usual Arabic order: amount, then currency.",
                               severity="warn", confidence="medium", method="code: visual position of tokens", snippet=t.text + " " + u.text, loc=t.loc)
                         break
@@ -223,25 +239,25 @@ def run_text_rules(F, tokens, numeral_pref="any", paste_mode=False, text_arrows=
         if s:
             base, fixed, note = s
             sev = "warn" if note.startswith(("preferred", "ta marbuta")) else "error"
-            F.add("R5", "R5", t.page, t.bbox, f"إملاء: «{base}» الصواب «{fixed}» ({note}).",
+            F.add("R5", "R5", t.page, t.bbox, f"خطأ إملائي: «{base}»، والصواب «{fixed}» ({note_ar(note)}).",
                   f"Spelling: \"{base}\" should be \"{fixed}\" ({note}).", severity=sev, confidence="high",
                   method="code: curated misspelling patterns (not a full dictionary)", snippet=base, loc=t.loc)
         farsi = [c for c in nfkc(t.text) if c in FARSI_LETTERS]
         if farsi and has_ar(t.text):
             fixed = "".join(FARSI_LETTERS.get(c, c) for c in nfkc(t.text))
-            F.add("R5", "R5", t.page, t.bbox, f"حرف فارسي/أردي داخل كلمة عربية في «{nfkc(t.text)}» ({'، '.join(farsi)}). الصواب «{fixed}».",
+            F.add("R5", "R5", t.page, t.bbox, f"تحتوي الكلمة «{nfkc(t.text)}» على حرف بشكل فارسي أو أردي ({'، '.join(farsi)}) داخل نص عربي. الصواب «{fixed}».",
                   f"Persian/Urdu letter form inside an Arabic word: \"{nfkc(t.text)}\" ({', '.join(farsi)}). Use \"{fixed}\".",
                   severity="error", confidence="high", method="code: Unicode letter check", snippet=nfkc(t.text), loc=t.loc)
         txt = nfkc(t.text)
         if re.search(r"[\u0621-\u064A][,;?]|[,;?][\u0621-\u064A]", txt) or re.fullmatch(r"[\u0621-\u064A]+[,;?]", txt):
-            F.add("R5", "R5", t.page, t.bbox, f"علامة ترقيم لاتينية داخل نص عربي في «{txt}». استخدم ، ؛ ؟",
+            F.add("R5", "R5", t.page, t.bbox, f"استُخدمت علامة ترقيم لاتينية داخل نص عربي في «{txt}». الأنسب استخدام العلامات العربية: ، ؛ ؟",
                   f"Latin punctuation inside Arabic text in \"{txt}\". Use ، ؛ ؟", severity="warn", confidence="high",
                   method="code: character classes", snippet=txt, loc=t.loc)
     if text_arrows:
         for t in tokens:
             if t.line_ar and any(c in RIGHT_ARROWS for c in t.text):
                 F.checked("R4")
-                F.add("R4", "R4", t.page, t.bbox, f"سهم «{t.text}» بيشاور يمين داخل نص عربي. في التصميم من اليمين لليسار «التالي» بيشاور شمال.",
+                F.add("R4", "R4", t.page, t.bbox, f"السهم «{t.text}» يشير إلى اليمين داخل نص عربي. في التصاميم من اليمين إلى اليسار يشير سهم «التالي» إلى اليسار.",
                       f"Arrow \"{t.text}\" points right inside Arabic text. In RTL layouts \"next\" points left.", severity="warn", confidence="medium",
                       method="code: arrow character direction", snippet=t.text, loc=t.loc)
     # repeated word
@@ -255,16 +271,21 @@ def run_text_rules(F, tokens, numeral_pref="any", paste_mode=False, text_arrows=
                 F.add("R5", "R5", pg, box, f"كلمة مكررة: «{na}».", f"Repeated word: \"{na}\".", severity="warn", confidence="medium",
                       method="code: adjacent duplicate tokens", snippet=na, loc=a.loc)
 
+    try:
+        _tone.check(F, tokens)
+    except Exception:
+        pass
+
 
 def text_only_typography(F, text, page=None, loc=""):
     """Rules that need the raw string (spaces), so only for pasted / PPTX text."""
     F.checked("R5")
     if re.search(r"[^\S\n]{2,}", text):
-        F.add("R5", "R5", page, None, "مسافات مزدوجة في النص.", "Double spaces in the text.", severity="warn", method="code: regex", snippet=text[:40], loc=loc)
+        F.add("R5", "R5", page, None, "توجد مسافات مزدوجة في النص.", "Double spaces in the text.", severity="warn", method="code: regex", snippet=text[:40], loc=loc)
     if re.search(r"\s[،؛؟:.!]", text) and has_ar(text):
-        F.add("R5", "R5", page, None, "مسافة قبل علامة ترقيم عربية.", "Space before a punctuation mark.", severity="warn", method="code: regex", snippet=text[:40], loc=loc)
+        F.add("R5", "R5", page, None, "توجد مسافة قبل علامة الترقيم.", "Space before a punctuation mark.", severity="warn", method="code: regex", snippet=text[:40], loc=loc)
     if re.search(r"[،؛؟][^\s\d)\]»”]", text):
-        F.add("R5", "R5", page, None, "علامة ترقيم بدون مسافة بعدها.", "Missing space after punctuation.", severity="warn", method="code: regex", snippet=text[:40], loc=loc)
+        F.add("R5", "R5", page, None, "لا توجد مسافة بعد علامة الترقيم.", "Missing space after punctuation.", severity="warn", method="code: regex", snippet=text[:40], loc=loc)
 
 
 # ----------------------------------------------------------------- brand rules
@@ -313,15 +334,15 @@ def parse_guidelines_pdf(path):
                 fc[re.sub(r"^[A-Z]{6}\+", "", f[3])] += 1
         fonts = [re.split(r"[-,]", n)[0] for n, _ in fc.most_common(3)]
         fonts = list(dict.fromkeys(fonts))
-        note = "fonts guessed from the fonts used inside the guideline file itself"
+        note = "الخطوط مستنتجة من الخطوط المستخدمة داخل ملف الدليل نفسه"
     else:
-        note = "fonts and colors read from the guideline text"
+        note = "الخطوط والألوان مقروءة من نص الدليل"
     numerals = "any"
     if re.search(r"أرقام هندية|الأرقام الهندية|Arabic-Indic|[٠١٢٣٤٥٦٧٨٩]{3}", text):
         numerals = "indic"
     elif re.search(r"أرقام غربية|الأرقام الغربية|Western numerals|Latin numerals", text):
         numerals = "west"
-    return Brand(fonts[:6], colors[:12], numerals, None, "Parsed automatically from the guideline PDF (%s). Review before relying on it." % note)
+    return Brand(fonts[:6], colors[:12], numerals, None, "قُرئت القواعد تلقائيًا من ملف الدليل (%s). يُرجى مراجعتها قبل الاعتماد عليها." % note)
 
 
 def hex_to_rgb(h):
@@ -528,7 +549,7 @@ def analyze_pdf(path, F, brand, max_pages=60, ocr=True, dpi=40):
                     if len(base) == 1 and base not in RIGHT_JOIN_ONLY and base != "ء":
                         bad += 1
             if bad:
-                F.add("R1", "R1", pi + 1, w[1], f"الحروف مقطوعة في «{nfkc(raw)}»: {bad} حرف بالشكل المنفصل رغم أنه لازم يتوصل بالحرف اللي بعده.",
+                F.add("R1", "R1", pi + 1, w[1], f"حروف غير متصلة في «{nfkc(raw)}»: {bad} حرف مرسوم بالشكل المنفصل مع أن العربية تتطلب وصله بالحرف التالي.",
                       f"Disconnected letters in \"{nfkc(raw)}\": {bad} letters drawn in isolated form where Arabic requires joining.",
                       severity="error", confidence="high", method="code: Unicode joining forms in the text layer", snippet=nfkc(raw))
         # ---- R2 bidi geometry + R4 arrows / punctuation
@@ -562,7 +583,7 @@ def analyze_pdf(path, F, brand, max_pages=60, ocr=True, dpi=40):
                         continue
                     s1, s2 = bracket_shape(page, b1), bracket_shape(page, b2)
                     if s1 == 1 and s2 == -1:
-                        F.add("R2", "R2", pi + 1, lb, "الأقواس مش معكوسة صح حوالين النص العربي: شكل القوس اللي على الشمال \")\" واللي على اليمين \"(\"، يعني ضهرهم للكلام بدل ما يحضنوه.",
+                        F.add("R2", "R2", pi + 1, lb, "الأقواس غير معكوسة بشكل صحيح حول النص العربي: القوس الأيسر مرسوم \")\" والأيمن \"(\"، فيتجهان بعيدًا عن النص بدل أن يحيطا به.",
                               "Brackets are not mirrored around Arabic text: the left glyph is drawn as \")\" and the right one as \"(\", so they face away from the content.",
                               severity="error", confidence="high", method="code: bracket glyph shape measured from pixels", snippet="".join(c for c, _ in vis)[:30])
                         break
@@ -583,14 +604,14 @@ def analyze_pdf(path, F, brand, max_pages=60, ocr=True, dpi=40):
                     if all(a > b for a, b in zip(xs, xs[1:])):
                         txt = "".join(c for c, _ in r)
                         F.add("R2", "R2", pi + 1, [min(bb[0] for _, bb in r), min(bb[1] for _, bb in r), max(bb[2] for _, bb in r), max(bb[3] for _, bb in r)],
-                              f"كلمة لاتينية معكوسة داخل النص العربي: «{txt}» مرسومة من اليمين لليسار.",
+                              f"كلمة لاتينية معكوسة داخل النص العربي: «{txt}» مرسومة من اليمين إلى اليسار.",
                               f"Latin text drawn backwards inside Arabic text: \"{txt}\" runs right to left.", severity="error", confidence="high",
                               method="code: character x-positions", snippet=txt)
                 # sentence punctuation at the wrong end
                 if n_ar >= 4 and n_ar > n_la:
                     rightmost = max(vis, key=lambda cb: cb[1][2])
                     if rightmost[0] in SENT_PUNCT and rightmost[0] != ":" and len(vis) >= 6:
-                        F.add("R2", "R2", pi + 1, rightmost[1], f"علامة الترقيم «{rightmost[0]}» ظاهرة في بداية السطر (أقصى اليمين) بدل نهاية الجملة. ده بيحصل لما النص العربي يتحط في فقرة اتجاهها شمال-يمين.",
+                        F.add("R2", "R2", pi + 1, rightmost[1], f"تظهر علامة الترقيم «{rightmost[0]}» في بداية السطر (أقصى اليمين) بدل نهاية الجملة. يحدث ذلك عادةً عندما يوضع النص العربي في فقرة اتجاهها من اليسار إلى اليمين.",
                               f"Punctuation mark \"{rightmost[0]}\" sits at the start (far right) of an Arabic line instead of the end. Typical sign of a left-to-right paragraph.",
                               severity="error", confidence="medium", method="code: character x-positions", snippet=rightmost[0])
         # ---- R4 alignment of long Arabic paragraphs
@@ -606,7 +627,7 @@ def analyze_pdf(path, F, brand, max_pages=60, ocr=True, dpi=40):
             if cnt_r >= 2:
                 for b in longb:
                     if abs(b[2] - mode_r * 3) > 12 and abs(b[0] - min(x[0] for x in longb)) < 4 and (mode_r * 3 - b[2]) > 0.18 * W:
-                        F.add("R4", "R4", pi + 1, b, "فقرة عربية محاذاتها لليسار بينما باقي الفقرات العربية محاذية لليمين.",
+                        F.add("R4", "R4", pi + 1, b, "فقرة عربية محاذاتها إلى اليسار، بينما بقية الفقرات العربية في الصفحة محاذاة إلى اليمين.",
                               "Arabic paragraph is aligned to the left while the other Arabic paragraphs on the page are aligned right.",
                               severity="warn", confidence="medium", method="code: block edge positions")
     F.note("R4", "Arrow and icon direction cannot be read from a PDF text layer (a font can draw a left arrow from a right-arrow character), so it is not tested here. It needs the vision step planned for a later version. Right-edge alignment of long Arabic paragraphs is tested.")
@@ -621,7 +642,7 @@ def analyze_pdf(path, F, brand, max_pages=60, ocr=True, dpi=40):
                 F.checked("R6", len(uses))
                 if not any(a and (a in fam or fam in a) for a in allowed):
                     pg, bb, fname = uses[0]
-                    F.add("R6", "R6", pg, bb, f"الخط «{re.sub(r'^[A-Z]{6}[+]', '', fname)}» مش في خطوط البراند ({'، '.join(brand.fonts)}). مستخدم {len(uses)} مرة، أول مرة صفحة {pg}.",
+                    F.add("R6", "R6", pg, bb, f"الخط «{re.sub(r'^[A-Z]{6}[+]', '', fname)}» ليس ضمن خطوط الهوية ({'، '.join(brand.fonts)}). استُخدم {len(uses)} مرة، وأولها في الصفحة {pg}.",
                           f"Font \"{re.sub(r'^[A-Z]{6}[+]', '', fname)}\" is not one of the brand fonts ({', '.join(brand.fonts)}). Used {len(uses)} times, first on page {pg}.",
                           severity="error", confidence="high", method="code: font names in the PDF", snippet=fname)
                     for pg2, bb2, _ in uses[1:3]:
@@ -629,7 +650,7 @@ def analyze_pdf(path, F, brand, max_pages=60, ocr=True, dpi=40):
         if brand.min_size:
             F.checked("R6", len(size_bad) + 1)
             for pg, bb, sz, txt in size_bad[:20]:
-                F.add("R6", "R6", pg, bb, f"حجم الخط {sz:.1f}pt أصغر من الحد الأدنى في الدليل ({brand.min_size}pt): «{nfkc(txt)[:30]}».",
+                F.add("R6", "R6", pg, bb, f"حجم الخط {sz:.1f}pt أصغر من الحد الأدنى في دليل الهوية ({brand.min_size}pt): «{nfkc(txt)[:30]}».",
                       f"Text size {sz:.1f}pt is below the guideline minimum ({brand.min_size}pt): \"{nfkc(txt)[:30]}\".", severity="warn",
                       confidence="high", method="code: font sizes in the PDF", snippet=nfkc(txt)[:30])
         if brand.colors:
@@ -637,7 +658,7 @@ def analyze_pdf(path, F, brand, max_pages=60, ocr=True, dpi=40):
                 F.checked("R6", len(uses))
                 pg, bb, txt = uses[0]
                 hx = "#%02x%02x%02x" % rgb
-                F.add("R6", "R6", pg, bb, f"لون النص {hx} مش من ألوان البراند ({'، '.join(brand.colors)}). مستخدم {len(uses)} مرة، أول مرة صفحة {pg}.",
+                F.add("R6", "R6", pg, bb, f"لون النص {hx} ليس من ألوان الهوية ({'، '.join(brand.colors)}). استُخدم {len(uses)} مرة، وأولها في الصفحة {pg}.",
                       f"Text color {hx} is not in the brand palette ({', '.join(brand.colors)}). Used {len(uses)} times, first on page {pg}.",
                       severity="warn", confidence="high", method="code: text colors in the PDF", snippet=hx)
     # ---- render pages once: edge check + OCR of raster digits
@@ -671,7 +692,7 @@ def pixel_checks_pdf(doc, n_pages, F, brand, ocr=True):
             W, H = page.rect.width, page.rect.height
             thick = t * (72 / 40)
             box = {"bottom": [0, H - thick, W, H], "top": [0, 0, W, thick], "left": [0, 0, thick, H], "right": [W - thick, 0, W, H]}[edge]
-            F.add("R7", "R7", pi + 1, box, f"الخلفية مش مغطية حافة الصفحة ({ {'bottom':'السفلية','top':'العلوية','left':'اليسرى','right':'اليمنى'}[edge] }): فاضل شريط أبيض حوالي {thick:.0f}pt.",
+            F.add("R7", "R7", pi + 1, box, f"الخلفية لا تغطي حافة الصفحة ({ {'bottom':'السفلية','top':'العلوية','left':'اليسرى','right':'اليمنى'}[edge] }): يتبقى شريط أبيض بسمك {thick:.0f}pt تقريبًا.",
                   f"The background does not reach the {edge} edge of the page: a white strip about {thick:.0f}pt thick remains.",
                   severity="warn", confidence="medium", method="code: pixel scan of the page edges", snippet=edge)
         if ocr and major_indic and tesseract_available() and _t.time() < deadline:
@@ -695,7 +716,7 @@ def pixel_checks_pdf(doc, n_pages, F, brand, ocr=True):
                 for text, (x0, y0, x1, y1) in hits:
                     sx, sy = r.width / pm.width, r.height / pm.height
                     bb = [r.x0 + x0 * sx - 3, r.y0 + y0 * sy - 3, r.x0 + x1 * sx + 3, r.y0 + y1 * sy + 3]
-                    F.add("R3", "R3", pi + 1, bb, f"داخل صورة/لقطة شاشة: الرقم «{text}» بالأرقام الغربية بينما باقي المستند بالأرقام الهندية. (قراءة بالـ OCR، راجعها بعينك)",
+                    F.add("R3", "R3", pi + 1, bb, f"داخل صورة أو لقطة شاشة: الرقم «{text}» مكتوب بالأرقام الغربية، بينما بقية المستند يستخدم الأرقام الهندية. (قُرئ بتقنية OCR، يُرجى التأكد بالعين)",
                           f"Inside a raster image: \"{text}\" is in Western digits while the document text uses Arabic-Indic digits. (Read by OCR, please confirm by eye.)",
                           severity="warn", confidence="medium", method="code + OCR (tesseract) on embedded images", snippet=text)
     if not tesseract_available():
@@ -857,7 +878,7 @@ def consistency_pdf(doc, n_pages, F):
                 rel_en = "smaller" if diff < 0 else "larger"
                 after = n["bbox"][1] > b["bbox"][1]
                 F.add(key, "R8", pi + 1, b["bbox"],
-                      f"فقرة حجم خطها {b['size']:g}pt {rel} من الفقرة {'اللي بعدها' if after else 'اللي قبلها'} ({n['size']:g}pt) بنفس الخط والوزن، ومفيش سبب واضح (مش عنوان ولا تعليق).",
+                      f"حجم خط الفقرة {b['size']:g}pt، وهو {rel} من الفقرة {'التي تليها' if after else 'التي تسبقها'} ({n['size']:g}pt) بالخط والوزن نفسيهما، دون سبب ظاهر (فهي ليست عنوانًا ولا تعليقًا).",
                       f"Paragraph set at {b['size']:g}pt is {rel_en} than the neighbouring paragraph ({n['size']:g}pt) in the same font and weight, and {b['size']:g}pt is rare in this document (a one-off, not a style).",
                       severity="warn", confidence="medium", method="code: font sizes from the PDF text layer", snippet=f"{b['size']:g}pt vs {n['size']:g}pt",
                       )
@@ -874,7 +895,7 @@ def consistency_pdf(doc, n_pages, F):
                     # a lone bold first item is a header, not a slip: skip the first element
                     if odd is not ch[0]:
                         F.add(key, "R8", pi + 1, odd["bbox"],
-                              f"عنصر وسط {n} عناصر متشابهة (نفس الخط والحجم) وزنه مختلف: {'عريض' if odd['bold'] else 'عادي'} بينما الباقي {'عادي' if odd['bold'] else 'عريض'}.",
+                              f"عنصر من بين {n} عناصر متشابهة (الخط والحجم نفسهما) وزنه مختلف: {'عريض' if odd['bold'] else 'عادي'} بينما بقية العناصر {'عادية' if odd['bold'] else 'عريضة'}.",
                               f"One of {n} otherwise identical stacked elements (same font and size) has a different weight: {'bold' if odd['bold'] else 'regular'} while the rest are {'regular' if odd['bold'] else 'bold'}.",
                               severity="warn", confidence="low", method="code: font names and sizes from the PDF text layer", snippet="weight")
             # (c) alignment edge
@@ -891,7 +912,7 @@ def consistency_pdf(doc, n_pages, F):
                         dv = abs(odd["bbox"][idx] - med)
                         if 6 <= dv <= 60 and all(b["lines"] == 1 for b in ch):
                             F.add(key, "R8", pi + 1, odd["bbox"],
-                                  f"عنصر وسط {n} عناصر متشابهة حافته {'اليمنى' if edge == 'right' else 'اليسرى'} مش على نفس الخط مع الباقي (فرق حوالي {dv:.0f}pt).",
+                                  f"عنصر من بين {n} عناصر متشابهة تختلف حافته {'اليمنى' if edge == 'right' else 'اليسرى'} عن خط المحاذاة المشترك بنحو {dv:.0f}pt.",
                                   f"One of {n} similar stacked elements is off the shared {edge} edge by about {dv:.0f}pt.",
                                   severity="warn", confidence="low", method="code: text box positions from the PDF", snippet=f"{edge} edge {dv:.0f}pt")
                             break
@@ -904,7 +925,7 @@ def consistency_pdf(doc, n_pages, F):
                     if m >= 3 and all(abs(o - m) <= max(1.5, 0.2 * m) for o in others) and abs(g - m) >= max(6.0, 0.5 * m):
                         a, b = ch[gi], ch[gi + 1]
                         F.add(key, "R8", pi + 1, _union(a["bbox"], b["bbox"]),
-                              f"المسافة بين عنصرين متكررين ({g:.0f}pt) مختلفة عن باقي المسافات في نفس المجموعة (حوالي {m:.0f}pt).",
+                              f"المسافة بين عنصرين متكررين ({g:.0f}pt) تختلف عن بقية المسافات في المجموعة نفسها (نحو {m:.0f}pt).",
                               f"The gap between two repeated elements ({g:.0f}pt) differs from the other gaps in the same group (about {m:.0f}pt).",
                               severity="warn", confidence="medium" if len(others) >= 3 else "low",
                               method="code: text box positions from the PDF", snippet=f"gap {g:.0f} vs {m:.0f}")
@@ -958,12 +979,12 @@ def analyze_pptx(path, F, brand):
                     if ar_n > la_n and ar_n >= 3:
                         F.checked("R2")
                         if rtl not in ("1", "true"):
-                            F.add("R2", "R2", si, sbb, f"فقرة عربية اتجاهها شمال-يمين (rtl غير مفعّل): «{text[:40]}». النتيجة: علامات الترقيم والأرقام والكلمات اللاتينية بتتحرك لمكان غلط.",
+                            F.add("R2", "R2", si, sbb, f"فقرة عربية اتجاهها من اليسار إلى اليمين (لم يُفعَّل RTL): «{text[:40]}». النتيجة: تنتقل علامات الترقيم والأرقام والكلمات اللاتينية إلى موضع خاطئ.",
                                   f"Arabic paragraph is left-to-right (rtl not set): \"{text[:40]}\". Punctuation, numbers and Latin words will land on the wrong side.",
                                   severity="error", confidence="high", method="code: paragraph rtl attribute", snippet=text[:40], loc=loc)
                         F.checked("R4")
                         if algn == "l" and rtl in ("1", "true"):
-                            F.add("R4", "R4", si, sbb, f"فقرة عربية RTL لكن محاذاتها لليسار: «{text[:40]}».",
+                            F.add("R4", "R4", si, sbb, f"فقرة عربية اتجاهها RTL لكن محاذاتها إلى اليسار: «{text[:40]}».",
                                   f"RTL Arabic paragraph is aligned left: \"{text[:40]}\".", severity="warn", confidence="medium",
                                   method="code: paragraph alignment attribute", snippet=text[:40], loc=loc)
                     for r in para.runs:
@@ -981,7 +1002,7 @@ def analyze_pptx(path, F, brand):
                                 rgb = None
                             if rgb is not None and brand.colors and not is_neutral(tuple(rgb)):
                                 if min(rgb_dist(tuple(rgb), hex_to_rgb(c)) for c in brand.colors) > 40:
-                                    F.add("R6", "R6", si, sbb, f"لون النص #{rgb} مش من ألوان البراند.", f"Text color #{rgb} is not in the brand palette.",
+                                    F.add("R6", "R6", si, sbb, f"لون النص #{rgb} ليس من ألوان الهوية.", f"Text color #{rgb} is not in the brand palette.",
                                           severity="warn", method="code: run color", snippet=str(rgb), loc=loc)
                     ln = 0
                     for w in re.findall(r"\S+", nfkc(text)):
@@ -993,7 +1014,7 @@ def analyze_pptx(path, F, brand):
         for fam, uses in font_use.items():
             F.checked("R6", len(uses))
             if not any(a and (a in fam or fam in a) for a in allowed):
-                F.add("R6", "R6", uses[0][0], None, f"الخط «{uses[0][2]}» مش في خطوط البراند ({'، '.join(brand.fonts)}). مستخدم {len(uses)} مرة.",
+                F.add("R6", "R6", uses[0][0], None, f"الخط «{uses[0][2]}» ليس ضمن خطوط الهوية ({'، '.join(brand.fonts)}). استُخدم {len(uses)} مرة.",
                       f"Font \"{uses[0][2]}\" is not a brand font ({', '.join(brand.fonts)}). Used {len(uses)} times.", severity="error",
                       method="code: run font names", snippet=uses[0][2], loc=uses[0][1])
     F.note("R1", "PowerPoint text is plain Unicode that PowerPoint shapes itself, so joining cannot be wrong in the file.")
@@ -1020,7 +1041,7 @@ def analyze_image_pixels(img, F, brand):
     for edge, t in edge_strip_check(img):
         W, H = img.size
         box = {"bottom": [0, H - t, W, H], "top": [0, 0, W, t], "left": [0, 0, t, H], "right": [W - t, 0, W, H]}[edge]
-        F.add("R7", "R7", 1, box, f"الخلفية مش مغطية الحافة ({ {'bottom':'السفلية','top':'العلوية','left':'اليسرى','right':'اليمنى'}[edge] }): شريط أبيض {t}px.",
+        F.add("R7", "R7", 1, box, f"الخلفية لا تغطي الحافة ({ {'bottom':'السفلية','top':'العلوية','left':'اليسرى','right':'اليمنى'}[edge] }): يتبقى شريط أبيض بسمك {t}px.",
               f"The background does not reach the {edge} edge: a white strip {t}px thick remains.", severity="warn", confidence="medium",
               method="code: pixel scan of the edges", snippet=edge)
     if brand.colors:
@@ -1037,7 +1058,7 @@ def analyze_image_pixels(img, F, brand):
         for k, v in cols.most_common(3):
             rgb = tuple(i * 24 + 12 for i in k)
             if v / total > 0.06 and min(rgb_dist(rgb, hex_to_rgb(c)) for c in brand.colors) > 60:
-                F.add("R6", "R6", 1, [0, 0, img.width, img.height], f"لون سائد في الصورة ({v * 100 // total}% من المساحة) قريب من #%02x%02x%02x ومش قريب من ألوان البراند." % rgb,
+                F.add("R6", "R6", 1, [0, 0, img.width, img.height], f"لون سائد في الصورة ({v * 100 // total}% من المساحة) قريب من #%02x%02x%02x ولا يقترب من أي لون في الهوية." % rgb,
                       f"A dominant color in the image ({v * 100 // total}% of the area), close to #%02x%02x%02x, is not near any brand color." % rgb,
                       severity="warn", confidence="medium", method="code: pixel color histogram", snippet="#%02x%02x%02x" % rgb)
     F.note("R1", "Flat images carry no text layer, so shaping, bidi, numerals and spelling cannot be read by code alone. Paste the text into the text box to check it. Reading text out of images needs a vision model API key (planned for a later version).")
@@ -1045,4 +1066,5 @@ def analyze_image_pixels(img, F, brand):
     F.note("R3", "Needs a text layer. Not run on flat images.")
     F.note("R4", "Needs a text layer. Not run on flat images.")
     F.note("R5", "Needs a text layer. Paste the text to check spelling.")
+    F.note("R9", "Needs a text layer. Paste the text to check tone.")
     F.note("R8", "Needs a text layer with font sizes. Not run on flat images.")
