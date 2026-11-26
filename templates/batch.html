@@ -13,7 +13,7 @@
 
 {% if s.done %}
 <div class="stats">
-<div><b style="color:{{ s.avg_band[2] }}">{{ s.avg }}</b><span>متوسط الدرجة من 100 · {{ s.avg_band[1] }}</span></div>
+{% if s.avg is not none %}<div><b style="color:{{ s.avg_band[2] }}">{{ s.avg }}</b><span>متوسط الدرجة من 100 · {{ s.avg_band[1] }}{% if s.scored < s.done|length %} · {{ s.scored }} من {{ s.done|length }} ملفات{% endif %}</span></div>{% else %}<div><b style="color:#888">—</b><span>لا درجة: لا ملفات فيها عربي</span></div>{% endif %}
 <div><b style="color:var(--err)">{{ s.errors }}</b><span>خطأ في كل الملفات</span></div>
 <div><b style="color:var(--warn)">{{ s.warns }}</b><span>تنبيه في كل الملفات</span></div>
 <div><b style="color:var(--green)">{{ s.fixable }}</b><span>تصحيح تلقائي جاهز (PPTX)</span></div>
@@ -34,12 +34,12 @@
 {% for it in items %}
 <div class="bf">
 <div class="bn"><b dir="auto">{{ it.name }}</b>
-<span class="sm">{% if it.status=='done' %}{{ kind_ar.get(it.kind, it.kind) }} · {{ it.pages }} صفحة · {{ it.errors }} خطأ · {{ it.warns }} تنبيه{% if it.fixable %} · {{ it.fixable }} تصحيح تلقائي{% endif %}
+<span class="sm">{% if it.status=='done' %}{{ kind_ar.get(it.kind, it.kind) }} · {{ it.pages }} صفحة · {{ it.errors }} خطأ · {{ it.warns }} تنبيه{% if it.applied is not none and it.applied is defined %} · انطبق {{ it.applied }} من {{ it.total }} فحص{% endif %}{% if it.score is none %} · لا يوجد محتوى عربي، الفحوص العربية غير منطبقة{% endif %}{% if it.fixable %} · {{ it.fixable }} تصحيح تلقائي{% endif %}
 {% elif it.status=='error' %}<span style="color:#ffb0b0">{{ it.msg }}</span>
 {% elif it.status=='running' %}جارٍ الفحص…
 {% else %}في الانتظار{% endif %}</span></div>
 {% if it.status=='done' %}
-<div class="bs" style="--c:{{ it.color }}"><b>{{ it.score }}</b><span>{{ it.band_ar }}</span></div>
+{% if it.score is none %}<div class="bs" style="--c:#888"><b>—</b><span>لا عربي</span></div>{% else %}<div class="bs" style="--c:{{ it.color }}"><b>{{ it.score }}</b><span>{{ it.band_ar }}</span></div>{% endif %}
 <a class="btn ghost sm2" href="{{ url_for('result', jid=it.jid) }}">فتح التقرير</a>
 {% endif %}
 </div>
