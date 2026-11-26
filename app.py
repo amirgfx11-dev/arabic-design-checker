@@ -105,6 +105,7 @@ def check():
     n_pages = 1
     fname = "نص ملصوق"
     kind = "text"
+    pptx_real = False
     try:
         if up and up.filename:
             fname = os.path.basename(up.filename)
@@ -124,7 +125,10 @@ def check():
             elif ext == "pptx":
                 kind = "pptx"
                 n_pages = engine.analyze_pptx(src, F, brand)
-                doc = engine.pptx_wireframe_doc(F.pptx) if F.pptx else None
+                doc = engine.pptx_render_doc(src, F.pptx, jdir) if F.pptx else None
+                pptx_real = doc is not None
+                if F.pptx and doc is None:
+                    doc = engine.pptx_wireframe_doc(F.pptx)
             else:
                 shutil.rmtree(jdir, ignore_errors=True)
                 return render_template("index.html", error="نوع الملف مش مدعوم. المدعوم: PDF وPNG وJPG وPPTX.", ocr=engine.tesseract_available(), max_pages=MAX_PAGES), 400
@@ -139,7 +143,7 @@ def check():
     pdir = os.path.join(jdir, "pages")
     pages = report.mark_pages(doc, items, pdir)
     rows = report.status_rows(dict(F.stats))
-    meta = dict(id=jid, filename=fname, kind=kind, pages=n_pages, when=datetime.now().strftime("%Y-%m-%d %H:%M"),
+    meta = dict(id=jid, filename=fname, kind=kind, pptx_real=pptx_real, pages=n_pages, when=datetime.now().strftime("%Y-%m-%d %H:%M"),
                 seconds=round(time.time() - t0, 1), brand=brand.summary() if brand.active() else None,
                 pasted=bool(pasted), ocr=bool(request.form.get("ocr")))
     report.build_pdf(os.path.join(jdir, "report.pdf"), meta, items, rows, pdir)
