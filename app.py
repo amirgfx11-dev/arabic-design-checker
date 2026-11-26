@@ -6,7 +6,7 @@ from flask import (Flask, abort, redirect, render_template, request, send_file, 
 import fitz
 from PIL import Image
 
-import engine, fixes, report
+import csv, engine, fixes, report, autofix
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 40 * 1024 * 1024
@@ -135,6 +135,11 @@ def check():
             elif ext == "pptx":
                 kind = "pptx"
                 n_pages = engine.analyze_pptx(src, F, brand)
+                try:
+                    shutil.copy(src, os.path.join(jdir, "original.pptx"))
+                    json.dump(autofix.generate(src, brand), open(os.path.join(jdir, "corrections.json"), "w"), ensure_ascii=False)
+                except Exception:
+                    pass  # auto-correction is optional; the report still works
                 doc = engine.pptx_render_doc(src, F.pptx, jdir) if F.pptx else None
                 pptx_real = doc is not None
                 if F.pptx and doc is None:
@@ -200,7 +205,15 @@ def result(jid):
         g["its"].append(it)
         g["errors"] += it["severity"] == "error"
     groups = sorted(gd.values(), key=lambda g: (-g["errors"], -len(g["its"])))
-    return render_template("report.html", r=r, pages=pages, by_page=by_page, ne=ne, nw=nw, rules=engine.RULES, groups=groups)
+    cj = os.path.join(DATA, jid, "corrections.json")
+    corr = json.load(open(cj)) if os.path.exists(cj) else None
+    kinds = []
+    if corr:
+        for k, (nar, nen, on) in autofix.KINDS.items():
+            its = [c for c in corr["corrections"] if c["kind"] == k]
+            if its:
+                kinds.append(dict(key=k, name=nar, name_en=nen, its=its, on=on))
+    return render_template("report.html", corr=corr, ckinds=kinds, r=r, pages=pages, by_page=by_page, ne=ne, nw=nw, rules=engine.RULES, groups=groups)
 
 
 @app.route("/r/<jid>/img/<name>")
@@ -218,6 +231,46 @@ def img(jid, name):
 def pdf(jid):
     load(jid)
     return send_file(os.path.join(DATA, jid, "report.pdf"), mimetype="application/pdf", as_attachment=True, download_name="arabic-design-report.pdf")
+
+
+def _selected(jid):
+    r = load(jid)
+    cj = os.path.join(DATA, jid, "corrections.json")
+    if r["meta"].get("kind") != "pptx" or not os.path.exists(cj) or not os.path.exists(os.path.join(DATA, jid, "original.pptx")):
+        abort(404)
+    corr = json.load(open(cj))
+    ids = set(request.form.getlist("c"))
+    valid = {c["id"] for c in corr["corrections"]}
+    return r, corr, [i for i in ids if i in valid]
+
+
+@app.route("/r/<jid>/fixed.pptx", methods=["POST"])
+def fixed_pptx(jid):
+    r, corr, ids = _selected(jid)
+    if not ids:
+        return redirect(url_for("result", jid=jid) + "#autofix")
+    out = os.path.join(DATA, jid, "fixed.pptx")
+    autofix.apply(os.path.join(DATA, jid, "original.pptx"), out, ids, corr.get("numeral_target"), corr.get("tone_dom"))
+    base = os.path.splitext(r["meta"]["filename"])[0]
+    return send_file(out, as_attachment=True, download_name=base + "-corrected.pptx",
+                     mimetype="application/vnd.openxmlformats-officedocument.presentationml.presentation")
+
+
+@app.route("/r/<jid>/corrections.csv", methods=["POST"])
+def corrections_csv(jid):
+    r, corr, ids = _selected(jid)
+    ids = set(ids)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["slide", "shape", "type", "before", "after", "context", "reason", "method", "confidence"])
+    for c in corr["corrections"]:
+        if c["id"] in ids:
+            w.writerow([c["slide"], c["shape"], autofix.KINDS[c["kind"]][1], c["before"], c["after"], c["ctx_before"] + "[" + c["before"] + "]" + c["ctx_after"],
+                        c["note_en"], c["method"], c["confidence"]])
+    resp = make_response("\ufeff" + buf.getvalue())
+    resp.headers["Content-Type"] = "text/csv; charset=utf-8"
+    resp.headers["Content-Disposition"] = "attachment; filename=corrections-log.csv"
+    return resp
 
 
 @app.route("/r/<jid>/findings.json")
