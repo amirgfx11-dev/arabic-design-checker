@@ -97,7 +97,8 @@ f.addEventListener('submit',e=>{if(!boxes().some(b=>b.checked)){e.preventDefault
 </nav>
 {% endif %}
 
-{% if not r['items'] %}<div class="card"><p><span class="badge b-clean">سليم</span> لا توجد ملاحظات في الفحوصات التي أُجريت. هذا يعني أن التصميم سليم وفق هذه القواعد فقط، ولا يعني خلوه من أي خطأ (راجع الفحوصات التي «لم تُختبر» أدناه).</p></div>{% endif %}
+{% if not r['items'] and sc and sc.state == 'no_arabic' %}<div class="card"><p><span class="badge b-not_run">لم يُقيَّم</span> لا توجد ملاحظات في الفحوصات التقنية التي اشتغلت فقط (انظر القائمة أعلاه). لم تُقيَّم الفحوص العربية (الإملاء والحروف والاتجاه والأرقام والترقيم والنبرة) لأن الملف لا يحوي نصًا عربيًا، فهذه النتيجة ليست حكمًا على سلامة الملف.</p></div>
+{% elif not r['items'] %}<div class="card"><p><span class="badge b-clean">سليم</span> لا توجد ملاحظات في الفحوصات التي أُجريت. هذا يعني أن التصميم سليم وفق هذه القواعد فقط، ولا يعني خلوه من أي خطأ (راجع الفحوصات التي «لم تُختبر» أدناه).</p></div>{% endif %}
 
 {% if groups|length > 1 %}<div class="actions" style="margin:0 0 10px"><button class="btn ghost" type="button" id="grpall">فتح كل المجموعات</button></div>
 <script>document.addEventListener("DOMContentLoaded",function(){var b=document.getElementById("grpall");if(b)b.onclick=function(){var ds=[].slice.call(document.querySelectorAll("details.grp"));var o=ds.some(function(d){return!d.open});ds.forEach(function(d){d.open=o});b.textContent=o?"طيّ كل المجموعات":"فتح كل المجموعات"}})</script>{% endif %}
@@ -128,7 +129,7 @@ f.addEventListener('submit',e=>{if(!boxes().some(b=>b.checked)){e.preventDefault
 <p class="note" style="margin:10px 0 0">التحديد بقوائم كلمات (كود ثابت وليس نموذجًا لغويًا)، ويرصد الكلمات المدرجة فقط.</p></div></details>
 {% elif tn %}<details class="fold" id="tone"><summary>نبرة الكتابة</summary><div><p class="note">لم تُرصد عبارات كافية لتحديد نبرة سائدة.</p></div></details>{% endif %}
 
-<details class="fold" id="checks" {% if not r['items'] %}open{% endif %}><summary>الفحوصات: ما الذي فُحص وما الذي سلم</summary><div>
+<details class="fold" id="checks" {% if not r['items'] or (sc and sc.state == 'no_arabic') %}open{% endif %}><summary>{% if sc and sc.state == 'no_arabic' %}الفحوصات: ما اشتغل وما لم يُقيَّم (الفحوص العربية لم تُقيَّم){% else %}الفحوصات: ما الذي فُحص وما الذي سلم{% endif %}</summary><div>
 <table>
 {% for row in r.rows %}
 <tr><td style="width:34%"><b>{{ row.name_ar }}</b><div class="en">{{ row.key }} · {{ row.name_en }}</div></td>
