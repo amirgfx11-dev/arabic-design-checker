@@ -10,11 +10,14 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app.py engine.py report.py ./
+COPY app.py engine.py report.py fixes.py tone.py ./
 COPY templates ./templates
 RUN mkdir -p fonts static/fonts \
  && cp /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf fonts/ \
  && (cp $(find /usr/share/fonts -name 'NotoNaskhArabic-Regular.ttf' | head -1) $(find /usr/share/fonts -name 'NotoNaskhArabic-Bold.ttf' | head -1) static/fonts/ || true) \
+ \
+ && for w in Regular Medium Bold ExtraBold; do cp $(find /usr/share/fonts -name "NotoKufiArabic-$w.ttf" | head -1) static/fonts/ || true; done \
+ && cp /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf static/fonts/ \
  && chown -R appuser:appuser /app
 USER appuser
 
